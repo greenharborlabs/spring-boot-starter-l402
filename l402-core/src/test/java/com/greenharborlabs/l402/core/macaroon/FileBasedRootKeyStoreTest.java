@@ -1,0 +1,262 @@
+package com.greenharborlabs.l402.core.macaroon;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
+import java.security.SecureRandom;
+import java.util.HexFormat;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assumptions.assumeThat;
+
+@DisplayName("FileBasedRootKeyStore")
+class FileBasedRootKeyStoreTest {
+
+    private static final int KEY_LENGTH = 32;
+    private static final HexFormat HEX = HexFormat.of();
+
+    @TempDir
+    Path tempDir;
+
+    private FileBasedRootKeyStore store;
+
+    @BeforeEach
+    void setUp() {
+        store = new FileBasedRootKeyStore(tempDir);
+    }
+
+    @Nested
+    @DisplayName("generateRootKey")
+    class GenerateRootKey {
+
+        @Test
+        @DisplayName("returns non-null byte array of 32 bytes")
+        void returnsThirtyTwoBytes() {
+            byte[] key = store.generateRootKey();
+
+            assertThat(key).isNotNull().hasSize(KEY_LENGTH);
+        }
+
+        @Test
+        @DisplayName("creates a key file in the storage directory")
+        void createsKeyFile() throws IOException {
+            store.generateRootKey();
+
+            try (Stream<Path> files = Files.list(tempDir)) {
+                long keyFileCount = files
+                        .filter(Files::isRegularFile)
+                        .filter(p -> !p.getFileName().toString().endsWith(".tmp"))
+                        .count();
+                assertThat(keyFileCount).isGreaterThanOrEqualTo(1);
+            }
+        }
+
+        @Test
+        @DisplayName("key file name is hex-encoded tokenId")
+        void keyFileNameIsHexEncodedTokenId() throws IOException {
+            store.generateRootKey();
+            byte[] keyId = store.getLastGeneratedKeyId();
+            String expectedFileName = HEX.formatHex(keyId);
+
+            assertThat(tempDir.resolve(expectedFileName)).exists().isRegularFile();
+        }
+
+        @Test
+        @DisplayName("key file has 600 permissions (owner read/write only)")
+        void keyFileHas600Permissions() throws IOException {
+            // Skip on non-POSIX filesystems (e.g., Windows)
+            assumeThat(tempDir.getFileSystem().supportedFileAttributeViews())
+                    .contains("posix");
+
+            store.generateRootKey();
+            byte[] keyId = store.getLastGeneratedKeyId();
+            String fileName = HEX.formatHex(keyId);
+            Path keyFile = tempDir.resolve(fileName);
+
+            Set<PosixFilePermission> permissions = Files.getPosixFilePermissions(keyFile);
+
+            assertThat(permissions).containsExactlyInAnyOrder(
+                    PosixFilePermission.OWNER_READ,
+                    PosixFilePermission.OWNER_WRITE
+            );
+        }
+
+        @Test
+        @DisplayName("storage directory has 700 permissions")
+        void directoryHas700Permissions() throws IOException {
+            assumeThat(tempDir.getFileSystem().supportedFileAttributeViews())
+                    .contains("posix");
+
+            // Create a fresh subdirectory so FileBasedRootKeyStore sets permissions
+            Path subDir = tempDir.resolve("keys");
+            FileBasedRootKeyStore freshStore = new FileBasedRootKeyStore(subDir);
+            freshStore.generateRootKey();
+
+            Set<PosixFilePermission> permissions = Files.getPosixFilePermissions(subDir);
+
+            assertThat(permissions).containsExactlyInAnyOrder(
+                    PosixFilePermission.OWNER_READ,
+                    PosixFilePermission.OWNER_WRITE,
+                    PosixFilePermission.OWNER_EXECUTE
+            );
+        }
+
+        @Test
+        @DisplayName("no temporary files remain after successful write")
+        void noTmpFilesRemain() throws IOException {
+            store.generateRootKey();
+
+            try (Stream<Path> files = Files.list(tempDir)) {
+                long tmpCount = files
+                        .filter(p -> p.getFileName().toString().endsWith(".tmp"))
+                        .count();
+                assertThat(tmpCount).isZero();
+            }
+        }
+    }
+
+    @Nested
+    @DisplayName("getRootKey")
+    class GetRootKey {
+
+        @Test
+        @DisplayName("returns null for unknown keyId")
+        void returnsNullForUnknownKeyId() {
+            byte[] unknownKeyId = new byte[KEY_LENGTH];
+            new SecureRandom().nextBytes(unknownKeyId);
+
+            byte[] result = store.getRootKey(unknownKeyId);
+
+            assertThat(result).isNull();
+        }
+
+        @Test
+        @DisplayName("returns same key that was generated")
+        void returnsSameKeyThatWasGenerated() {
+            byte[] key = store.generateRootKey();
+            byte[] keyId = store.getLastGeneratedKeyId();
+
+            byte[] retrieved = store.getRootKey(keyId);
+
+            assertThat(retrieved).isEqualTo(key);
+        }
+
+        @Test
+        @DisplayName("reads back correctly from a fresh store instance over same directory")
+        void readsBackFromFreshInstance() {
+            byte[] key = store.generateRootKey();
+            byte[] keyId = store.getLastGeneratedKeyId();
+
+            // Create a new store pointing at the same directory
+            FileBasedRootKeyStore freshStore = new FileBasedRootKeyStore(tempDir);
+
+            byte[] retrieved = freshStore.getRootKey(keyId);
+
+            assertThat(retrieved).isEqualTo(key);
+        }
+    }
+
+    @Nested
+    @DisplayName("revokeRootKey")
+    class RevokeRootKey {
+
+        @Test
+        @DisplayName("after revocation, getRootKey returns null")
+        void revokedKeyReturnsNull() {
+            store.generateRootKey();
+            byte[] keyId = store.getLastGeneratedKeyId();
+
+            store.revokeRootKey(keyId);
+
+            assertThat(store.getRootKey(keyId)).isNull();
+        }
+
+        @Test
+        @DisplayName("revocation deletes the key file from disk")
+        void revocationDeletesFile() {
+            store.generateRootKey();
+            byte[] keyId = store.getLastGeneratedKeyId();
+            String fileName = HEX.formatHex(keyId);
+            Path keyFile = tempDir.resolve(fileName);
+
+            assertThat(keyFile).exists();
+
+            store.revokeRootKey(keyId);
+
+            assertThat(keyFile).doesNotExist();
+        }
+
+        @Test
+        @DisplayName("revoking unknown keyId does not throw")
+        void revokingUnknownKeyIdDoesNotThrow() {
+            byte[] unknownKeyId = new byte[KEY_LENGTH];
+            new SecureRandom().nextBytes(unknownKeyId);
+
+            store.revokeRootKey(unknownKeyId);
+            // Should complete without exception
+        }
+    }
+
+    @Nested
+    @DisplayName("thread safety")
+    class ThreadSafety {
+
+        @Test
+        @DisplayName("concurrent read and write do not corrupt state")
+        void concurrentReadWriteSafe() throws InterruptedException {
+            // Pre-generate a key to read concurrently
+            byte[] key = store.generateRootKey();
+            byte[] keyId = store.getLastGeneratedKeyId();
+
+            int threadCount = 32;
+            ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+            CountDownLatch startLatch = new CountDownLatch(1);
+            CountDownLatch doneLatch = new CountDownLatch(threadCount);
+            Set<String> errors = ConcurrentHashMap.newKeySet();
+
+            for (int i = 0; i < threadCount; i++) {
+                int index = i;
+                executor.submit(() -> {
+                    try {
+                        startLatch.await();
+                        if (index % 2 == 0) {
+                            // Readers
+                            byte[] retrieved = store.getRootKey(keyId);
+                            if (retrieved != null && !java.util.Arrays.equals(retrieved, key)) {
+                                errors.add("Corrupted read at index " + index);
+                            }
+                        } else {
+                            // Writers — generate additional keys
+                            store.generateRootKey();
+                        }
+                    } catch (Exception e) {
+                        errors.add("Exception at index " + index + ": " + e.getMessage());
+                    } finally {
+                        doneLatch.countDown();
+                    }
+                });
+            }
+
+            startLatch.countDown();
+            boolean finished = doneLatch.await(10, TimeUnit.SECONDS);
+            executor.shutdown();
+
+            assertThat(finished).isTrue();
+            assertThat(errors).isEmpty();
+        }
+    }
+}

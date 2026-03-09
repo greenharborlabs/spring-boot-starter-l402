@@ -1,0 +1,144 @@
+package com.greenharborlabs.l402.core.macaroon;
+
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
+import java.security.SecureRandom;
+import java.util.Arrays;
+import java.util.HexFormat;
+import java.util.Set;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+
+/**
+ * File-based implementation of {@link RootKeyStore}. Each root key is persisted as a
+ * hex-encoded file whose name is the hex-encoded tokenId.
+ *
+ * <p>Thread safety is provided by a {@link ReadWriteLock}: read lock for
+ * {@link #getRootKey}, write lock for {@link #generateRootKey} and {@link #revokeRootKey}.
+ *
+ * <p>On POSIX systems the storage directory is created with {@code 700} permissions and
+ * key files with {@code 600} permissions. Writes are atomic (tmp file + rename).
+ */
+public final class FileBasedRootKeyStore implements RootKeyStore {
+
+    private static final int KEY_LENGTH = 32;
+    private static final HexFormat HEX = HexFormat.of();
+
+    private final Path directory;
+    private final SecureRandom secureRandom = new SecureRandom();
+    private final ReadWriteLock lock = new ReentrantReadWriteLock();
+    private volatile byte[] lastGeneratedKeyId;
+    private final boolean posix;
+
+    public FileBasedRootKeyStore(Path directory) {
+        this.directory = directory;
+        this.posix = directory.getFileSystem().supportedFileAttributeViews().contains("posix");
+        ensureDirectory();
+    }
+
+    @Override
+    public byte[] generateRootKey() {
+        byte[] rootKey = new byte[KEY_LENGTH];
+        secureRandom.nextBytes(rootKey);
+
+        byte[] tokenId = new byte[KEY_LENGTH];
+        secureRandom.nextBytes(tokenId);
+
+        String hexKeyId = HEX.formatHex(tokenId);
+
+        lock.writeLock().lock();
+        try {
+            writeKeyFile(hexKeyId, rootKey);
+            lastGeneratedKeyId = Arrays.copyOf(tokenId, tokenId.length);
+        } finally {
+            lock.writeLock().unlock();
+        }
+
+        return Arrays.copyOf(rootKey, rootKey.length);
+    }
+
+    @Override
+    public byte[] getRootKey(byte[] keyId) {
+        String hexKeyId = HEX.formatHex(keyId);
+        Path keyFile = directory.resolve(hexKeyId);
+
+        lock.readLock().lock();
+        try {
+            if (!Files.exists(keyFile)) {
+                return null;
+            }
+            String hexContent = Files.readString(keyFile).strip();
+            return HEX.parseHex(hexContent);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to read root key: " + hexKeyId, e);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    @Override
+    public void revokeRootKey(byte[] keyId) {
+        String hexKeyId = HEX.formatHex(keyId);
+        Path keyFile = directory.resolve(hexKeyId);
+
+        lock.writeLock().lock();
+        try {
+            Files.deleteIfExists(keyFile);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to revoke root key: " + hexKeyId, e);
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * Returns a defensive copy of the tokenId from the last {@link #generateRootKey()} call.
+     * Used by tests to retrieve the keyId needed for {@link #getRootKey(byte[])}.
+     */
+    public byte[] getLastGeneratedKeyId() {
+        byte[] id = lastGeneratedKeyId;
+        return id == null ? null : Arrays.copyOf(id, id.length);
+    }
+
+    private void ensureDirectory() {
+        try {
+            if (!Files.exists(directory)) {
+                if (posix) {
+                    Set<PosixFilePermission> dirPerms = PosixFilePermissions.fromString("rwx------");
+                    Files.createDirectories(directory,
+                            PosixFilePermissions.asFileAttribute(dirPerms));
+                } else {
+                    Files.createDirectories(directory);
+                }
+            } else if (posix) {
+                Files.setPosixFilePermissions(directory,
+                        PosixFilePermissions.fromString("rwx------"));
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to create key storage directory: " + directory, e);
+        }
+    }
+
+    private void writeKeyFile(String hexKeyId, byte[] rootKey) {
+        try {
+            String hexContent = HEX.formatHex(rootKey);
+            Path targetFile = directory.resolve(hexKeyId);
+            Path tmpFile = directory.resolve(hexKeyId + ".tmp");
+
+            Files.writeString(tmpFile, hexContent);
+            if (posix) {
+                Files.setPosixFilePermissions(tmpFile,
+                        PosixFilePermissions.fromString("rw-------"));
+            }
+            Files.move(tmpFile, targetFile,
+                    StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to write root key: " + hexKeyId, e);
+        }
+    }
+}
