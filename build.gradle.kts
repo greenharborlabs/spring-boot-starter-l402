@@ -1,6 +1,7 @@
 plugins {
     id("org.springframework.boot") version "4.0.3" apply false
     id("io.spring.dependency-management") version "1.1.7" apply false
+    id("jacoco-report-aggregation")
 }
 
 val springBootVersion = "4.0.3"
@@ -23,6 +24,7 @@ allprojects {
 subprojects {
     apply(plugin = "java-library")
     apply(plugin = "io.spring.dependency-management")
+    apply(plugin = "jacoco")
 
     the<io.spring.gradle.dependencymanagement.dsl.DependencyManagementExtension>().apply {
         imports {
@@ -44,6 +46,33 @@ subprojects {
 
     tasks.withType<Test> {
         useJUnitPlatform()
+        finalizedBy(tasks.named("jacocoTestReport"))
+    }
+
+    tasks.withType<JacocoReport> {
+        reports {
+            xml.required.set(true)
+            html.required.set(true)
+        }
+    }
+
+    tasks.withType<JacocoCoverageVerification> {
+        violationRules {
+            rule {
+                limit {
+                    minimum = "0.40".toBigDecimal()
+                }
+            }
+        }
+    }
+
+    tasks.named("check") {
+        dependsOn(tasks.withType<JacocoCoverageVerification>())
+    }
+
+    // Wire subproject into aggregated JaCoCo report
+    rootProject.dependencies {
+        "jacocoAggregation"(project(path))
     }
 
     // Make dependency version constants available to subproject build files
