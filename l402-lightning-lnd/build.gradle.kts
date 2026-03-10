@@ -15,8 +15,11 @@ dependencies {
     implementation("io.grpc:grpc-stub:$grpcVersion")
     implementation("com.google.protobuf:protobuf-java:$protobufVersion")
 
-    // Required for generated gRPC code with Java 9+ (javax.annotation.Generated)
-    compileOnly("jakarta.annotation:jakarta.annotation-api")
+    // Required for generated gRPC code — protoc-gen-grpc-java emits @javax.annotation.Generated
+    compileOnly("javax.annotation:javax.annotation-api:1.3.2")
+
+    testImplementation("io.grpc:grpc-testing:$grpcVersion")
+    testImplementation("io.grpc:grpc-inprocess:$grpcVersion")
 }
 
 protobuf {

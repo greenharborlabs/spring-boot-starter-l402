@@ -126,4 +126,79 @@ public class L402AutoConfiguration {
     public L402EarningsTracker l402EarningsTracker() {
         return new L402EarningsTracker();
     }
+
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnProperty(name = "l402.backend", havingValue = "lnbits")
+    @ConditionalOnClass(name = "com.greenharborlabs.l402.lightning.lnbits.LnbitsBackend")
+    static class LnbitsBackendConfiguration {
+
+        @Bean
+        @ConditionalOnMissingBean(LightningBackend.class)
+        LightningBackend lightningBackend(L402Properties properties,
+                                          com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
+            var lnbits = properties.getLnbits();
+            var config = new com.greenharborlabs.l402.lightning.lnbits.LnbitsConfig(
+                    lnbits.getUrl(), lnbits.getApiKey());
+            return new com.greenharborlabs.l402.lightning.lnbits.LnbitsBackend(
+                    config,
+                    objectMapper,
+                    java.net.http.HttpClient.newBuilder()
+                            .connectTimeout(java.time.Duration.ofSeconds(10))
+                            .build());
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnProperty(name = "l402.backend", havingValue = "lnd")
+    @ConditionalOnClass(name = "com.greenharborlabs.l402.lightning.lnd.LndBackend")
+    static class LndBackendConfiguration {
+
+        @Bean(destroyMethod = "shutdown")
+        @ConditionalOnMissingBean(io.grpc.ManagedChannel.class)
+        io.grpc.ManagedChannel lndManagedChannel(L402Properties properties) {
+            return buildChannel(properties.getLnd());
+        }
+
+        @Bean
+        @ConditionalOnMissingBean(LightningBackend.class)
+        LightningBackend lightningBackend(L402Properties properties,
+                                          io.grpc.ManagedChannel lndManagedChannel) {
+            var lnd = properties.getLnd();
+            var config = new com.greenharborlabs.l402.lightning.lnd.LndConfig(
+                    lnd.getHost(), lnd.getPort(), lnd.getTlsCertPath(), lnd.getMacaroonPath());
+            return new com.greenharborlabs.l402.lightning.lnd.LndBackend(config, lndManagedChannel);
+        }
+
+        private static io.grpc.ManagedChannel buildChannel(L402Properties.Lnd lnd) {
+            if (lnd.getTlsCertPath() == null) {
+                // Plaintext channel for dev/test environments
+                return io.grpc.ManagedChannelBuilder
+                        .forAddress(lnd.getHost(), lnd.getPort())
+                        .usePlaintext()
+                        .build();
+            }
+            try {
+                // TLS channel with optional macaroon credentials
+                io.grpc.netty.shaded.io.netty.handler.ssl.SslContext sslContext;
+                try (java.io.InputStream certStream = java.nio.file.Files.newInputStream(
+                        Path.of(lnd.getTlsCertPath()))) {
+                    sslContext = io.grpc.netty.shaded.io.grpc.netty.GrpcSslContexts.forClient()
+                            .trustManager(certStream)
+                            .build();
+                }
+                var builder = io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder
+                        .forAddress(lnd.getHost(), lnd.getPort())
+                        .sslContext(sslContext);
+                if (lnd.getMacaroonPath() != null) {
+                    byte[] macaroonBytes = java.nio.file.Files.readAllBytes(
+                            Path.of(lnd.getMacaroonPath()));
+                    String macaroonHex = java.util.HexFormat.of().formatHex(macaroonBytes);
+                    builder.intercept(new MacaroonClientInterceptor(macaroonHex));
+                }
+                return builder.build();
+            } catch (java.io.IOException e) {
+                throw new IllegalStateException("Failed to build LND gRPC channel", e);
+            }
+        }
+    }
 }

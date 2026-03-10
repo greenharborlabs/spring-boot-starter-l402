@@ -1,0 +1,17 @@
+package com.greenharborlabs.l402.lightning.lnd;
+
+/**
+ * Configuration for connecting to an LND node over gRPC.
+ *
+ * @param host         LND gRPC host
+ * @param port         LND gRPC port
+ * @param tlsCertPath  path to TLS certificate file, or null for plaintext/test channels
+ * @param macaroonPath path to admin macaroon file, or null for unauthenticated/test channels
+ */
+public record LndConfig(
+        String host,
+        int port,
+        String tlsCertPath,
+        String macaroonPath
+) {
+}

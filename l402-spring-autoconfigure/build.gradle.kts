@@ -1,4 +1,6 @@
 val caffeineVersion: String by extra
+val grpcVersion: String by extra
+val jacksonVersion: String by extra
 
 dependencies {
     api(project(":l402-core"))
@@ -11,6 +13,13 @@ dependencies {
     compileOnly("com.github.ben-manes.caffeine:caffeine:$caffeineVersion")
     compileOnly("io.micrometer:micrometer-core")
     compileOnly("org.springframework.boot:spring-boot-actuator-autoconfigure")
+
+    // Lightning backend modules — optional; consumers bring the one they need
+    compileOnly(project(":l402-lightning-lnbits"))
+    compileOnly(project(":l402-lightning-lnd"))
+    compileOnly("io.grpc:grpc-netty-shaded:$grpcVersion")
+    compileOnly("io.grpc:grpc-stub:$grpcVersion")
+    compileOnly("com.fasterxml.jackson.core:jackson-databind:$jacksonVersion")
 
     annotationProcessor("org.springframework.boot:spring-boot-configuration-processor")
 

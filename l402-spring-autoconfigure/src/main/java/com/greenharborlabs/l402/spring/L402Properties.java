@@ -30,6 +30,26 @@ public class L402Properties {
 
     private boolean testMode = false;
 
+    private Lnbits lnbits = new Lnbits();
+
+    private Lnd lnd = new Lnd();
+
+    public Lnbits getLnbits() {
+        return lnbits;
+    }
+
+    public void setLnbits(Lnbits lnbits) {
+        this.lnbits = lnbits;
+    }
+
+    public Lnd getLnd() {
+        return lnd;
+    }
+
+    public void setLnd(Lnd lnd) {
+        this.lnd = lnd;
+    }
+
     public boolean isEnabled() {
         return enabled;
     }
@@ -108,5 +128,77 @@ public class L402Properties {
 
     public void setTestMode(boolean testMode) {
         this.testMode = testMode;
+    }
+
+    /**
+     * LNbits backend configuration properties bound from {@code l402.lnbits.*}.
+     */
+    public static class Lnbits {
+
+        private String url;
+
+        private String apiKey;
+
+        public String getUrl() {
+            return url;
+        }
+
+        public void setUrl(String url) {
+            this.url = url;
+        }
+
+        public String getApiKey() {
+            return apiKey;
+        }
+
+        public void setApiKey(String apiKey) {
+            this.apiKey = apiKey;
+        }
+    }
+
+    /**
+     * LND backend configuration properties bound from {@code l402.lnd.*}.
+     */
+    public static class Lnd {
+
+        private String host = "localhost";
+
+        private int port = 10009;
+
+        private String tlsCertPath;
+
+        private String macaroonPath;
+
+        public String getHost() {
+            return host;
+        }
+
+        public void setHost(String host) {
+            this.host = host;
+        }
+
+        public int getPort() {
+            return port;
+        }
+
+        public void setPort(int port) {
+            this.port = port;
+        }
+
+        public String getTlsCertPath() {
+            return tlsCertPath;
+        }
+
+        public void setTlsCertPath(String tlsCertPath) {
+            this.tlsCertPath = tlsCertPath;
+        }
+
+        public String getMacaroonPath() {
+            return macaroonPath;
+        }
+
+        public void setMacaroonPath(String macaroonPath) {
+            this.macaroonPath = macaroonPath;
+        }
     }
 }
