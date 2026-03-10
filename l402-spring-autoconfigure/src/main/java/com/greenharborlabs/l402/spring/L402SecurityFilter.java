@@ -62,6 +62,24 @@ public class L402SecurityFilter implements Filter {
     private final ApplicationContext applicationContext;
     private volatile L402Metrics metrics;
 
+    /**
+     * Primary constructor accepting a pre-built L402Validator (used by auto-configuration).
+     */
+    public L402SecurityFilter(L402EndpointRegistry registry,
+                              LightningBackend lightningBackend,
+                              RootKeyStore rootKeyStore,
+                              L402Validator validator,
+                              ApplicationContext applicationContext) {
+        this.registry = Objects.requireNonNull(registry, "registry must not be null");
+        this.lightningBackend = Objects.requireNonNull(lightningBackend, "lightningBackend must not be null");
+        this.rootKeyStore = Objects.requireNonNull(rootKeyStore, "rootKeyStore must not be null");
+        this.validator = Objects.requireNonNull(validator, "validator must not be null");
+        this.applicationContext = applicationContext;
+    }
+
+    /**
+     * Backward-compatible constructor that creates the L402Validator internally.
+     */
     public L402SecurityFilter(L402EndpointRegistry registry,
                               LightningBackend lightningBackend,
                               RootKeyStore rootKeyStore,
@@ -72,6 +90,9 @@ public class L402SecurityFilter implements Filter {
                 caveatVerifiers, serviceName, null);
     }
 
+    /**
+     * Backward-compatible constructor that creates the L402Validator internally.
+     */
     public L402SecurityFilter(L402EndpointRegistry registry,
                               LightningBackend lightningBackend,
                               RootKeyStore rootKeyStore,
@@ -79,14 +100,13 @@ public class L402SecurityFilter implements Filter {
                               List<CaveatVerifier> caveatVerifiers,
                               String serviceName,
                               ApplicationContext applicationContext) {
-        this.registry = Objects.requireNonNull(registry, "registry must not be null");
-        this.lightningBackend = Objects.requireNonNull(lightningBackend, "lightningBackend must not be null");
-        this.rootKeyStore = Objects.requireNonNull(rootKeyStore, "rootKeyStore must not be null");
-        Objects.requireNonNull(credentialStore, "credentialStore must not be null");
-        Objects.requireNonNull(caveatVerifiers, "caveatVerifiers must not be null");
-        String resolvedServiceName = (serviceName == null || serviceName.isBlank()) ? "default" : serviceName;
-        this.validator = new L402Validator(rootKeyStore, credentialStore, caveatVerifiers, resolvedServiceName);
-        this.applicationContext = applicationContext;
+        this(registry, lightningBackend, rootKeyStore,
+                new L402Validator(
+                        Objects.requireNonNull(rootKeyStore, "rootKeyStore must not be null"),
+                        Objects.requireNonNull(credentialStore, "credentialStore must not be null"),
+                        Objects.requireNonNull(caveatVerifiers, "caveatVerifiers must not be null"),
+                        (serviceName == null || serviceName.isBlank()) ? "default" : serviceName),
+                applicationContext);
     }
 
     /**

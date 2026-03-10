@@ -1,10 +1,14 @@
 package com.greenharborlabs.l402.spring;
 
+import com.greenharborlabs.l402.core.credential.CredentialStore;
+import com.greenharborlabs.l402.core.credential.InMemoryCredentialStore;
 import com.greenharborlabs.l402.core.lightning.Invoice;
 import com.greenharborlabs.l402.core.lightning.InvoiceStatus;
 import com.greenharborlabs.l402.core.lightning.LightningBackend;
+import com.greenharborlabs.l402.core.macaroon.CaveatVerifier;
 import com.greenharborlabs.l402.core.macaroon.InMemoryRootKeyStore;
 import com.greenharborlabs.l402.core.macaroon.RootKeyStore;
+import com.greenharborlabs.l402.core.protocol.L402Validator;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -13,6 +17,8 @@ import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
+
+import java.util.List;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -58,6 +64,27 @@ class BeanOverrideTest {
                 });
     }
 
+    @Test
+    @DisplayName("auto-configured L402Validator is used when no custom bean is defined")
+    void autoConfiguredL402ValidatorWhenNoOverride() {
+        contextRunner
+                .run(context -> {
+                    assertThat(context).hasSingleBean(L402Validator.class);
+                });
+    }
+
+    @Test
+    @DisplayName("custom L402Validator bean replaces auto-configured validator")
+    void customL402ValidatorPreventsAutoConfigured() {
+        contextRunner
+                .withUserConfiguration(CustomL402ValidatorConfig.class)
+                .run(context -> {
+                    assertThat(context).hasSingleBean(L402Validator.class);
+                    assertThat(context.getBean(L402Validator.class))
+                            .isSameAs(context.getBean(CustomL402ValidatorConfig.class).customValidator);
+                });
+    }
+
     // -----------------------------------------------------------------------
     // Configuration that provides required dependencies for L402AutoConfiguration
     // -----------------------------------------------------------------------
@@ -86,6 +113,26 @@ class BeanOverrideTest {
         @Bean
         RootKeyStore rootKeyStore() {
             return new CustomRootKeyStore();
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // User-provided configuration that overrides the auto-configured L402Validator
+    // -----------------------------------------------------------------------
+
+    @Configuration(proxyBeanMethods = false)
+    static class CustomL402ValidatorConfig {
+
+        final L402Validator customValidator = new L402Validator(
+                new InMemoryRootKeyStore(),
+                new InMemoryCredentialStore(),
+                List.of(),
+                "custom-service"
+        );
+
+        @Bean
+        L402Validator l402Validator() {
+            return customValidator;
         }
     }
 

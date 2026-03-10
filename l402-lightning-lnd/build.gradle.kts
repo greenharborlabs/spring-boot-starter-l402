@@ -22,6 +22,26 @@ dependencies {
     testImplementation("io.grpc:grpc-inprocess:$grpcVersion")
 }
 
+tasks.withType<JacocoReport> {
+    classDirectories.setFrom(
+        files(classDirectories.files.map {
+            fileTree(it) {
+                exclude("lnrpc/**")
+            }
+        })
+    )
+}
+
+tasks.withType<JacocoCoverageVerification> {
+    classDirectories.setFrom(
+        files(classDirectories.files.map {
+            fileTree(it) {
+                exclude("lnrpc/**")
+            }
+        })
+    )
+}
+
 protobuf {
     protoc {
         artifact = "com.google.protobuf:protoc:$protobufVersion"

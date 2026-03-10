@@ -6,6 +6,7 @@ import com.greenharborlabs.l402.core.lightning.InvoiceStatus;
 import com.greenharborlabs.l402.core.lightning.LightningBackend;
 import com.greenharborlabs.l402.core.macaroon.CaveatVerifier;
 import com.greenharborlabs.l402.core.macaroon.RootKeyStore;
+import com.greenharborlabs.l402.core.protocol.L402Validator;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -85,6 +86,13 @@ class AutoConfigurationTest {
     }
 
     @Test
+    @DisplayName("creates L402Validator bean when l402.enabled=true")
+    void createsL402Validator() {
+        contextRunner.run(context ->
+                assertThat(context).hasSingleBean(L402Validator.class));
+    }
+
+    @Test
     @DisplayName("all L402 beans are created together when l402.enabled=true and l402.backend=lnbits")
     void allBeansCreated() {
         contextRunner.run(context -> {
@@ -94,6 +102,7 @@ class AutoConfigurationTest {
             assertThat(context).hasSingleBean(L402EndpointRegistry.class);
             assertThat(context).hasBean("l402SecurityFilterRegistration");
             assertThat(context).hasBean("caveatVerifiers");
+            assertThat(context).hasSingleBean(L402Validator.class);
         });
     }
 

@@ -7,9 +7,9 @@ import com.greenharborlabs.l402.core.macaroon.CaveatVerifier;
 import com.greenharborlabs.l402.core.macaroon.FileBasedRootKeyStore;
 import com.greenharborlabs.l402.core.macaroon.InMemoryRootKeyStore;
 import com.greenharborlabs.l402.core.macaroon.RootKeyStore;
+import com.greenharborlabs.l402.core.protocol.L402Validator;
 
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.ApplicationContext;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -17,6 +17,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingClas
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.Ordered;
@@ -84,6 +85,19 @@ public class L402AutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    public L402Validator l402Validator(RootKeyStore rootKeyStore,
+                                       CredentialStore credentialStore,
+                                       List<CaveatVerifier> caveatVerifiers,
+                                       L402Properties properties) {
+        String serviceName = properties.getServiceName();
+        if (serviceName == null || serviceName.isBlank()) {
+            serviceName = "default";
+        }
+        return new L402Validator(rootKeyStore, credentialStore, caveatVerifiers, serviceName);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
     public L402EndpointRegistry l402EndpointRegistry(RequestMappingHandlerMapping handlerMapping) {
         var registry = new L402EndpointRegistry();
         registry.scanAnnotatedEndpoints(handlerMapping);
@@ -95,17 +109,11 @@ public class L402AutoConfiguration {
     public L402SecurityFilter l402SecurityFilter(L402EndpointRegistry registry,
                                                   LightningBackend lightningBackend,
                                                   RootKeyStore rootKeyStore,
-                                                  CredentialStore credentialStore,
-                                                  List<CaveatVerifier> caveatVerifiers,
-                                                  L402Properties properties,
+                                                  L402Validator l402Validator,
                                                   ApplicationContext applicationContext,
                                                   @Autowired(required = false) L402Metrics l402Metrics) {
-        String serviceName = properties.getServiceName();
-        if (serviceName == null || serviceName.isBlank()) {
-            serviceName = "default";
-        }
         var filter = new L402SecurityFilter(registry, lightningBackend, rootKeyStore,
-                credentialStore, caveatVerifiers, serviceName, applicationContext);
+                l402Validator, applicationContext);
         if (l402Metrics != null) {
             filter.setMetrics(l402Metrics);
         }
