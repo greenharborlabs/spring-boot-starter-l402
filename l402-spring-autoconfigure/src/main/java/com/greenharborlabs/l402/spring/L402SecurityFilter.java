@@ -24,6 +24,8 @@ import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
+import org.springframework.context.ApplicationContext;
+
 import java.io.IOException;
 import java.security.SecureRandom;
 import java.time.Instant;
@@ -61,6 +63,7 @@ public class L402SecurityFilter implements Filter {
     private final CredentialStore credentialStore;
     private final List<CaveatVerifier> caveatVerifiers;
     private final L402Validator validator;
+    private final ApplicationContext applicationContext;
 
     public L402SecurityFilter(L402EndpointRegistry registry,
                               LightningBackend lightningBackend,
@@ -68,6 +71,17 @@ public class L402SecurityFilter implements Filter {
                               CredentialStore credentialStore,
                               List<CaveatVerifier> caveatVerifiers,
                               String serviceName) {
+        this(registry, lightningBackend, rootKeyStore, credentialStore,
+                caveatVerifiers, serviceName, null);
+    }
+
+    public L402SecurityFilter(L402EndpointRegistry registry,
+                              LightningBackend lightningBackend,
+                              RootKeyStore rootKeyStore,
+                              CredentialStore credentialStore,
+                              List<CaveatVerifier> caveatVerifiers,
+                              String serviceName,
+                              ApplicationContext applicationContext) {
         this.registry = Objects.requireNonNull(registry, "registry must not be null");
         this.lightningBackend = Objects.requireNonNull(lightningBackend, "lightningBackend must not be null");
         this.rootKeyStore = Objects.requireNonNull(rootKeyStore, "rootKeyStore must not be null");
@@ -76,6 +90,7 @@ public class L402SecurityFilter implements Filter {
                 Objects.requireNonNull(caveatVerifiers, "caveatVerifiers must not be null"));
         String resolvedServiceName = (serviceName == null || serviceName.isBlank()) ? "default" : serviceName;
         this.validator = new L402Validator(rootKeyStore, credentialStore, caveatVerifiers, resolvedServiceName);
+        this.applicationContext = applicationContext;
     }
 
     @Override
@@ -110,7 +125,7 @@ public class L402SecurityFilter implements Filter {
         if (authHeader == null || authHeader.isEmpty()
                 || (!authHeader.startsWith(L402_PREFIX) && !authHeader.startsWith(LSAT_PREFIX))) {
             try {
-                writePaymentRequiredResponse(httpResponse, config);
+                writePaymentRequiredResponse(httpRequest, httpResponse, config);
             } catch (Exception e) {
                 log.log(System.Logger.Level.WARNING, "Failed to create invoice for {0} {1}: {2}", method, path, e.getMessage());
                 if (!httpResponse.isCommitted()) {
@@ -138,7 +153,7 @@ public class L402SecurityFilter implements Filter {
             if (errorCode == ErrorCode.MALFORMED_HEADER) {
                 // Malformed L402 header: issue a new challenge
                 try {
-                    writePaymentRequiredResponse(httpResponse, config);
+                    writePaymentRequiredResponse(httpRequest, httpResponse, config);
                 } catch (Exception ex) {
                     log.log(System.Logger.Level.WARNING, "Failed to create invoice for {0} {1}: {2}", method, path, ex.getMessage());
                     if (!httpResponse.isCommitted()) {
@@ -157,7 +172,9 @@ public class L402SecurityFilter implements Filter {
         }
     }
 
-    private void writePaymentRequiredResponse(HttpServletResponse response, L402EndpointConfig config)
+    private void writePaymentRequiredResponse(HttpServletRequest request,
+                                               HttpServletResponse response,
+                                               L402EndpointConfig config)
             throws IOException {
 
         // Generate root key and retrieve the tokenId the store used internally
@@ -165,8 +182,11 @@ public class L402SecurityFilter implements Filter {
         byte[] tokenId = generateRootKeyAndGetTokenId(outRootKey);
         byte[] rootKey = outRootKey[0];
 
+        // Resolve effective price: dynamic strategy overrides static annotation value
+        long effectivePrice = resolvePrice(request, config);
+
         // Create Lightning invoice
-        Invoice invoice = lightningBackend.createInvoice(config.priceSats(), config.description());
+        Invoice invoice = lightningBackend.createInvoice(effectivePrice, config.description());
 
         // Build MacaroonIdentifier and mint macaroon
         MacaroonIdentifier identifier = new MacaroonIdentifier(0, invoice.paymentHash(), tokenId);
@@ -184,7 +204,7 @@ public class L402SecurityFilter implements Filter {
         response.setContentType("application/json");
         response.getWriter().write("""
                 {"code": 402, "message": "Payment required", "price_sats": %d, "description": "%s", "invoice": "%s"}"""
-                .formatted(config.priceSats(), escapeJson(config.description()), invoice.bolt11()));
+                .formatted(effectivePrice, escapeJson(config.description()), invoice.bolt11()));
     }
 
     /**
@@ -207,6 +227,28 @@ public class L402SecurityFilter implements Filter {
                 SECURE_RANDOM.nextBytes(tokenId);
                 return tokenId;
             }
+        }
+    }
+
+    /**
+     * Resolves the effective price for an endpoint by looking up the pricing strategy
+     * bean from the ApplicationContext. Falls back to the static annotation price if
+     * no strategy is configured, the ApplicationContext is unavailable, or the bean
+     * does not exist.
+     */
+    private long resolvePrice(HttpServletRequest request, L402EndpointConfig config) {
+        String strategyName = config.pricingStrategy();
+        if (strategyName == null || strategyName.isBlank() || applicationContext == null) {
+            return config.priceSats();
+        }
+        try {
+            L402PricingStrategy strategy = applicationContext.getBean(strategyName, L402PricingStrategy.class);
+            return strategy.calculatePrice(request, config.priceSats());
+        } catch (Exception e) {
+            log.log(System.Logger.Level.WARNING,
+                    "Pricing strategy bean ''{0}'' not found or failed; falling back to static price {1} sats",
+                    strategyName, config.priceSats());
+            return config.priceSats();
         }
     }
 

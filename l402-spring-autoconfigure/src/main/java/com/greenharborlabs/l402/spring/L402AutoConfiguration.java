@@ -8,6 +8,7 @@ import com.greenharborlabs.l402.core.macaroon.FileBasedRootKeyStore;
 import com.greenharborlabs.l402.core.macaroon.InMemoryRootKeyStore;
 import com.greenharborlabs.l402.core.macaroon.RootKeyStore;
 
+import org.springframework.context.ApplicationContext;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -88,13 +89,14 @@ public class L402AutoConfiguration {
                                                   RootKeyStore rootKeyStore,
                                                   CredentialStore credentialStore,
                                                   List<CaveatVerifier> caveatVerifiers,
-                                                  L402Properties properties) {
+                                                  L402Properties properties,
+                                                  ApplicationContext applicationContext) {
         String serviceName = properties.getServiceName();
         if (serviceName == null || serviceName.isBlank()) {
             serviceName = "default";
         }
         return new L402SecurityFilter(registry, lightningBackend, rootKeyStore,
-                credentialStore, caveatVerifiers, serviceName);
+                credentialStore, caveatVerifiers, serviceName, applicationContext);
     }
 
     @Bean
