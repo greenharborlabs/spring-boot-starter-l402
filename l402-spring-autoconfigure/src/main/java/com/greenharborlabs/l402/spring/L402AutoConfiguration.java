@@ -8,17 +8,19 @@ import com.greenharborlabs.l402.core.macaroon.FileBasedRootKeyStore;
 import com.greenharborlabs.l402.core.macaroon.InMemoryRootKeyStore;
 import com.greenharborlabs.l402.core.macaroon.RootKeyStore;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.Ordered;
+import org.springframework.core.env.Environment;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 import java.nio.file.Path;
@@ -33,8 +35,14 @@ import java.util.List;
  */
 @AutoConfiguration
 @ConditionalOnProperty(name = "l402.enabled", havingValue = "true", matchIfMissing = false)
-@EnableConfigurationProperties(L402Properties.class)
 public class L402AutoConfiguration {
+
+    @Bean
+    @ConditionalOnMissingBean
+    public L402Properties l402Properties(Environment environment) {
+        return Binder.get(environment)
+                .bindOrCreate("l402", L402Properties.class);
+    }
 
     @Bean
     @ConditionalOnMissingBean
@@ -90,13 +98,18 @@ public class L402AutoConfiguration {
                                                   CredentialStore credentialStore,
                                                   List<CaveatVerifier> caveatVerifiers,
                                                   L402Properties properties,
-                                                  ApplicationContext applicationContext) {
+                                                  ApplicationContext applicationContext,
+                                                  @Autowired(required = false) L402Metrics l402Metrics) {
         String serviceName = properties.getServiceName();
         if (serviceName == null || serviceName.isBlank()) {
             serviceName = "default";
         }
-        return new L402SecurityFilter(registry, lightningBackend, rootKeyStore,
+        var filter = new L402SecurityFilter(registry, lightningBackend, rootKeyStore,
                 credentialStore, caveatVerifiers, serviceName, applicationContext);
+        if (l402Metrics != null) {
+            filter.setMetrics(l402Metrics);
+        }
+        return filter;
     }
 
     @Bean
@@ -106,5 +119,11 @@ public class L402AutoConfiguration {
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 10);
         registration.addUrlPatterns("/*");
         return registration;
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public L402EarningsTracker l402EarningsTracker() {
+        return new L402EarningsTracker();
     }
 }

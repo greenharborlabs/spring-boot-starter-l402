@@ -1,0 +1,637 @@
+package com.greenharborlabs.l402.spring;
+
+import com.greenharborlabs.l402.core.credential.CredentialStore;
+import com.greenharborlabs.l402.core.lightning.Invoice;
+import com.greenharborlabs.l402.core.lightning.InvoiceStatus;
+import com.greenharborlabs.l402.core.lightning.LightningBackend;
+import com.greenharborlabs.l402.core.macaroon.CaveatVerifier;
+import com.greenharborlabs.l402.core.macaroon.Macaroon;
+import com.greenharborlabs.l402.core.macaroon.MacaroonIdentifier;
+import com.greenharborlabs.l402.core.macaroon.MacaroonMinter;
+import com.greenharborlabs.l402.core.macaroon.MacaroonSerializer;
+import com.greenharborlabs.l402.core.macaroon.RootKeyStore;
+import com.greenharborlabs.l402.core.protocol.L402Credential;
+
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.security.MessageDigest;
+import java.security.SecureRandom;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.Base64;
+import java.util.HexFormat;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+/**
+ * TDD tests for L402 Micrometer metrics integration.
+ *
+ * <p>Verifies that the {@link L402SecurityFilter} records the correct Micrometer
+ * counters and gauges when processing requests to protected endpoints. These tests
+ * will FAIL until T094 integrates metrics recording into the filter.
+ *
+ * <p>Metrics under test:
+ * <ul>
+ *   <li>{@code l402.requests} counter with {@code endpoint} and {@code result} tags</li>
+ *   <li>{@code l402.revenue.sats} counter with {@code endpoint} tag</li>
+ *   <li>{@code l402.invoices.created} counter with {@code endpoint} tag</li>
+ *   <li>{@code l402.invoices.settled} counter with {@code endpoint} tag</li>
+ *   <li>{@code l402.credentials.active} gauge</li>
+ *   <li>{@code l402.lightning.healthy} gauge</li>
+ * </ul>
+ */
+@SpringBootTest(classes = L402MetricsTest.TestApp.class)
+@AutoConfigureMockMvc
+@DisplayName("L402 Micrometer Metrics")
+class L402MetricsTest {
+
+    private static final byte[] ROOT_KEY = new byte[32];
+    private static final HexFormat HEX = HexFormat.of();
+    private static final long PRICE_SATS = 21;
+    private static final String PROTECTED_PATH = "/api/paid";
+    private static final String PUBLIC_PATH = "/api/free";
+
+    static {
+        new SecureRandom().nextBytes(ROOT_KEY);
+    }
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Autowired
+    private MeterRegistry meterRegistry;
+
+    @Autowired
+    private LightningBackend lightningBackend;
+
+    @Autowired
+    private CredentialStore credentialStore;
+
+    // -----------------------------------------------------------------------
+    // Test application and configuration
+    // -----------------------------------------------------------------------
+
+    @Configuration
+    @EnableAutoConfiguration
+    static class TestApp {
+
+        @Bean
+        MeterRegistry meterRegistry() {
+            return new SimpleMeterRegistry();
+        }
+
+        @Bean
+        LightningBackend lightningBackend() {
+            return new StubLightningBackend();
+        }
+
+        @Bean
+        RootKeyStore rootKeyStore() {
+            return new InMemoryTestRootKeyStore(ROOT_KEY);
+        }
+
+        @Bean
+        CredentialStore credentialStore() {
+            return new InMemoryTestCredentialStore();
+        }
+
+        @Bean
+        List<CaveatVerifier> caveatVerifiers() {
+            return List.of();
+        }
+
+        @Bean
+        L402EndpointRegistry l402EndpointRegistry() {
+            var registry = new L402EndpointRegistry();
+            registry.register(
+                    new L402EndpointConfig("GET", PROTECTED_PATH, PRICE_SATS, 600, "Paid endpoint", "")
+            );
+            return registry;
+        }
+
+        @Bean
+        L402Metrics l402Metrics(MeterRegistry meterRegistry,
+                                CredentialStore credentialStore,
+                                LightningBackend lightningBackend) {
+            return new L402Metrics(meterRegistry, credentialStore, lightningBackend);
+        }
+
+        @Bean
+        L402SecurityFilter l402SecurityFilter(
+                L402EndpointRegistry endpointRegistry,
+                LightningBackend lightningBackendBean,
+                RootKeyStore rootKeyStore,
+                CredentialStore credentialStore,
+                List<CaveatVerifier> caveatVerifiers,
+                L402Metrics l402Metrics
+        ) {
+            var filter = new L402SecurityFilter(
+                    endpointRegistry, lightningBackendBean, rootKeyStore, credentialStore, caveatVerifiers, "test-service"
+            );
+            filter.setMetrics(l402Metrics);
+            return filter;
+        }
+
+        @Bean
+        TestController testController() {
+            return new TestController();
+        }
+    }
+
+    @RestController
+    static class TestController {
+
+        @L402Protected(priceSats = 21, description = "Paid endpoint")
+        @GetMapping(PROTECTED_PATH)
+        String paidEndpoint() {
+            return "paid-content";
+        }
+
+        @GetMapping(PUBLIC_PATH)
+        String freeEndpoint() {
+            return "free-content";
+        }
+    }
+
+    @BeforeEach
+    void resetStubs() {
+        ((StubLightningBackend) lightningBackend).setHealthy(true);
+        ((StubLightningBackend) lightningBackend).setNextInvoice(createStubInvoice());
+    }
+
+    // -----------------------------------------------------------------------
+    // Challenge scenario (402) — no auth header on protected endpoint
+    // -----------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("when a 402 challenge is issued")
+    class ChallengeMetrics {
+
+        @Test
+        @DisplayName("increments l402.requests counter with result=challenged")
+        void incrementsRequestsChallengedCounter() throws Exception {
+            double before = counterValue("l402.requests", "endpoint", PROTECTED_PATH, "result", "challenged");
+
+            mockMvc.perform(get(PROTECTED_PATH))
+                    .andExpect(status().isPaymentRequired());
+
+            double after = counterValue("l402.requests", "endpoint", PROTECTED_PATH, "result", "challenged");
+            assertThat(after).isEqualTo(before + 1.0);
+        }
+
+        @Test
+        @DisplayName("increments l402.invoices.created counter")
+        void incrementsInvoicesCreatedCounter() throws Exception {
+            double before = counterValue("l402.invoices.created", "endpoint", PROTECTED_PATH);
+
+            mockMvc.perform(get(PROTECTED_PATH))
+                    .andExpect(status().isPaymentRequired());
+
+            double after = counterValue("l402.invoices.created", "endpoint", PROTECTED_PATH);
+            assertThat(after).isEqualTo(before + 1.0);
+        }
+
+        @Test
+        @DisplayName("does not increment l402.revenue.sats counter")
+        void doesNotIncrementRevenueCounter() throws Exception {
+            double before = counterValue("l402.revenue.sats", "endpoint", PROTECTED_PATH);
+
+            mockMvc.perform(get(PROTECTED_PATH))
+                    .andExpect(status().isPaymentRequired());
+
+            double after = counterValue("l402.revenue.sats", "endpoint", PROTECTED_PATH);
+            assertThat(after).isEqualTo(before);
+        }
+
+        @Test
+        @DisplayName("does not increment l402.invoices.settled counter")
+        void doesNotIncrementInvoicesSettledCounter() throws Exception {
+            double before = counterValue("l402.invoices.settled", "endpoint", PROTECTED_PATH);
+
+            mockMvc.perform(get(PROTECTED_PATH))
+                    .andExpect(status().isPaymentRequired());
+
+            double after = counterValue("l402.invoices.settled", "endpoint", PROTECTED_PATH);
+            assertThat(after).isEqualTo(before);
+        }
+
+        @Test
+        @DisplayName("does not increment l402.requests counter with result=passed")
+        void doesNotIncrementPassedCounter() throws Exception {
+            double before = counterValue("l402.requests", "endpoint", PROTECTED_PATH, "result", "passed");
+
+            mockMvc.perform(get(PROTECTED_PATH))
+                    .andExpect(status().isPaymentRequired());
+
+            double after = counterValue("l402.requests", "endpoint", PROTECTED_PATH, "result", "passed");
+            assertThat(after).isEqualTo(before);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Passed scenario (200) — valid credential on protected endpoint
+    // -----------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("when a valid credential passes")
+    class PassedMetrics {
+
+        @Test
+        @DisplayName("increments l402.requests counter with result=passed")
+        void incrementsRequestsPassedCounter() throws Exception {
+            double before = counterValue("l402.requests", "endpoint", PROTECTED_PATH, "result", "passed");
+
+            mockMvc.perform(get(PROTECTED_PATH)
+                            .header("Authorization", buildValidAuthHeader()))
+                    .andExpect(status().isOk());
+
+            double after = counterValue("l402.requests", "endpoint", PROTECTED_PATH, "result", "passed");
+            assertThat(after).isEqualTo(before + 1.0);
+        }
+
+        @Test
+        @DisplayName("increments l402.revenue.sats counter by the endpoint price")
+        void incrementsRevenueSatsCounter() throws Exception {
+            double before = counterValue("l402.revenue.sats", "endpoint", PROTECTED_PATH);
+
+            mockMvc.perform(get(PROTECTED_PATH)
+                            .header("Authorization", buildValidAuthHeader()))
+                    .andExpect(status().isOk());
+
+            double after = counterValue("l402.revenue.sats", "endpoint", PROTECTED_PATH);
+            assertThat(after).isEqualTo(before + PRICE_SATS);
+        }
+
+        @Test
+        @DisplayName("increments l402.invoices.settled counter")
+        void incrementsInvoicesSettledCounter() throws Exception {
+            double before = counterValue("l402.invoices.settled", "endpoint", PROTECTED_PATH);
+
+            mockMvc.perform(get(PROTECTED_PATH)
+                            .header("Authorization", buildValidAuthHeader()))
+                    .andExpect(status().isOk());
+
+            double after = counterValue("l402.invoices.settled", "endpoint", PROTECTED_PATH);
+            assertThat(after).isEqualTo(before + 1.0);
+        }
+
+        @Test
+        @DisplayName("does not increment l402.invoices.created counter")
+        void doesNotIncrementInvoicesCreatedCounter() throws Exception {
+            double before = counterValue("l402.invoices.created", "endpoint", PROTECTED_PATH);
+
+            mockMvc.perform(get(PROTECTED_PATH)
+                            .header("Authorization", buildValidAuthHeader()))
+                    .andExpect(status().isOk());
+
+            double after = counterValue("l402.invoices.created", "endpoint", PROTECTED_PATH);
+            assertThat(after).isEqualTo(before);
+        }
+
+        @Test
+        @DisplayName("does not increment l402.requests counter with result=challenged")
+        void doesNotIncrementChallengedCounter() throws Exception {
+            double before = counterValue("l402.requests", "endpoint", PROTECTED_PATH, "result", "challenged");
+
+            mockMvc.perform(get(PROTECTED_PATH)
+                            .header("Authorization", buildValidAuthHeader()))
+                    .andExpect(status().isOk());
+
+            double after = counterValue("l402.requests", "endpoint", PROTECTED_PATH, "result", "challenged");
+            assertThat(after).isEqualTo(before);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Rejected scenario (401) — invalid credential on protected endpoint
+    // -----------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("when a credential is rejected")
+    class RejectedMetrics {
+
+        @Test
+        @DisplayName("increments l402.requests counter with result=rejected")
+        void incrementsRequestsRejectedCounter() throws Exception {
+            double before = counterValue("l402.requests", "endpoint", PROTECTED_PATH, "result", "rejected");
+
+            mockMvc.perform(get(PROTECTED_PATH)
+                            .header("Authorization", buildInvalidAuthHeader()))
+                    .andExpect(status().isUnauthorized());
+
+            double after = counterValue("l402.requests", "endpoint", PROTECTED_PATH, "result", "rejected");
+            assertThat(after).isEqualTo(before + 1.0);
+        }
+
+        @Test
+        @DisplayName("does not increment l402.revenue.sats counter")
+        void doesNotIncrementRevenueCounter() throws Exception {
+            double before = counterValue("l402.revenue.sats", "endpoint", PROTECTED_PATH);
+
+            mockMvc.perform(get(PROTECTED_PATH)
+                            .header("Authorization", buildInvalidAuthHeader()))
+                    .andExpect(status().isUnauthorized());
+
+            double after = counterValue("l402.revenue.sats", "endpoint", PROTECTED_PATH);
+            assertThat(after).isEqualTo(before);
+        }
+
+        @Test
+        @DisplayName("does not increment l402.invoices.created counter")
+        void doesNotIncrementInvoicesCreatedCounter() throws Exception {
+            double before = counterValue("l402.invoices.created", "endpoint", PROTECTED_PATH);
+
+            mockMvc.perform(get(PROTECTED_PATH)
+                            .header("Authorization", buildInvalidAuthHeader()))
+                    .andExpect(status().isUnauthorized());
+
+            double after = counterValue("l402.invoices.created", "endpoint", PROTECTED_PATH);
+            assertThat(after).isEqualTo(before);
+        }
+
+        @Test
+        @DisplayName("does not increment l402.invoices.settled counter")
+        void doesNotIncrementInvoicesSettledCounter() throws Exception {
+            double before = counterValue("l402.invoices.settled", "endpoint", PROTECTED_PATH);
+
+            mockMvc.perform(get(PROTECTED_PATH)
+                            .header("Authorization", buildInvalidAuthHeader()))
+                    .andExpect(status().isUnauthorized());
+
+            double after = counterValue("l402.invoices.settled", "endpoint", PROTECTED_PATH);
+            assertThat(after).isEqualTo(before);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Gauge metrics
+    // -----------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("gauge metrics")
+    class GaugeMetrics {
+
+        @Test
+        @DisplayName("l402.credentials.active gauge reflects credential store active count")
+        void credentialsActiveGaugeReflectsStoreCount() throws Exception {
+            // Trigger a request so the filter has been invoked at least once
+            mockMvc.perform(get(PROTECTED_PATH))
+                    .andExpect(status().isPaymentRequired());
+
+            Double gaugeValue = gaugeValue("l402.credentials.active");
+            assertThat(gaugeValue).isNotNull();
+            assertThat(gaugeValue).isEqualTo((double) credentialStore.activeCount());
+        }
+
+        @Test
+        @DisplayName("l402.lightning.healthy gauge reports 1.0 when Lightning is healthy")
+        void lightningHealthyGaugeReportsOne() throws Exception {
+            ((StubLightningBackend) lightningBackend).setHealthy(true);
+
+            // Trigger a request so gauges are registered
+            mockMvc.perform(get(PROTECTED_PATH))
+                    .andExpect(status().isPaymentRequired());
+
+            Double gaugeValue = gaugeValue("l402.lightning.healthy");
+            assertThat(gaugeValue).isNotNull();
+            assertThat(gaugeValue).isEqualTo(1.0);
+        }
+
+        @Test
+        @DisplayName("l402.lightning.healthy gauge reports 0.0 when Lightning is unhealthy")
+        void lightningHealthyGaugeReportsZero() throws Exception {
+            ((StubLightningBackend) lightningBackend).setHealthy(false);
+
+            // Trigger a request — will get 503 but gauge should still be set
+            mockMvc.perform(get(PROTECTED_PATH))
+                    .andExpect(status().isServiceUnavailable());
+
+            Double gaugeValue = gaugeValue("l402.lightning.healthy");
+            assertThat(gaugeValue).isNotNull();
+            assertThat(gaugeValue).isEqualTo(0.0);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Unprotected endpoint — should not increment any L402 counters
+    // -----------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("unprotected endpoint")
+    class UnprotectedEndpointMetrics {
+
+        @Test
+        @DisplayName("does not increment any l402.requests counter")
+        void doesNotIncrementRequestsCounter() throws Exception {
+            double passedBefore = counterValue("l402.requests", "endpoint", PUBLIC_PATH, "result", "passed");
+            double challengedBefore = counterValue("l402.requests", "endpoint", PUBLIC_PATH, "result", "challenged");
+            double rejectedBefore = counterValue("l402.requests", "endpoint", PUBLIC_PATH, "result", "rejected");
+
+            mockMvc.perform(get(PUBLIC_PATH))
+                    .andExpect(status().isOk());
+
+            assertThat(counterValue("l402.requests", "endpoint", PUBLIC_PATH, "result", "passed"))
+                    .isEqualTo(passedBefore);
+            assertThat(counterValue("l402.requests", "endpoint", PUBLIC_PATH, "result", "challenged"))
+                    .isEqualTo(challengedBefore);
+            assertThat(counterValue("l402.requests", "endpoint", PUBLIC_PATH, "result", "rejected"))
+                    .isEqualTo(rejectedBefore);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Test helpers
+    // -----------------------------------------------------------------------
+
+    private double counterValue(String name, String... tags) {
+        Counter counter = meterRegistry.find(name).tags(tags).counter();
+        return counter != null ? counter.count() : 0.0;
+    }
+
+    private Double gaugeValue(String name, String... tags) {
+        var gauge = meterRegistry.find(name).tags(tags).gauge();
+        return gauge != null ? gauge.value() : null;
+    }
+
+    private String buildValidAuthHeader() {
+        byte[] preimage = new byte[32];
+        new SecureRandom().nextBytes(preimage);
+        byte[] paymentHash = sha256(preimage);
+
+        byte[] tokenId = new byte[32];
+        new SecureRandom().nextBytes(tokenId);
+
+        MacaroonIdentifier identifier = new MacaroonIdentifier(0, paymentHash, tokenId);
+        Macaroon macaroon = MacaroonMinter.mint(ROOT_KEY, identifier, null, List.of());
+
+        byte[] serialized = MacaroonSerializer.serializeV2(macaroon);
+        String macaroonBase64 = Base64.getEncoder().encodeToString(serialized);
+        String preimageHex = HEX.formatHex(preimage);
+
+        return "L402 " + macaroonBase64 + ":" + preimageHex;
+    }
+
+    private String buildInvalidAuthHeader() {
+        // Mint a macaroon with a valid structure but use a WRONG preimage
+        // so the preimage does not hash to the payment hash in the identifier
+        byte[] realPreimage = new byte[32];
+        new SecureRandom().nextBytes(realPreimage);
+        byte[] paymentHash = sha256(realPreimage);
+
+        byte[] tokenId = new byte[32];
+        new SecureRandom().nextBytes(tokenId);
+
+        MacaroonIdentifier identifier = new MacaroonIdentifier(0, paymentHash, tokenId);
+        Macaroon macaroon = MacaroonMinter.mint(ROOT_KEY, identifier, null, List.of());
+
+        byte[] serialized = MacaroonSerializer.serializeV2(macaroon);
+        String macaroonBase64 = Base64.getEncoder().encodeToString(serialized);
+
+        // Use a different preimage that won't match the payment hash
+        byte[] wrongPreimage = new byte[32];
+        new SecureRandom().nextBytes(wrongPreimage);
+        String wrongPreimageHex = HEX.formatHex(wrongPreimage);
+
+        return "L402 " + macaroonBase64 + ":" + wrongPreimageHex;
+    }
+
+    private static Invoice createStubInvoice() {
+        byte[] paymentHash = new byte[32];
+        new SecureRandom().nextBytes(paymentHash);
+        Instant now = Instant.now();
+        return new Invoice(
+                paymentHash,
+                "lnbc210n1p0testmetricsinvoice",
+                PRICE_SATS,
+                "Test invoice",
+                InvoiceStatus.PENDING,
+                null,
+                now,
+                now.plus(1, ChronoUnit.HOURS)
+        );
+    }
+
+    private static byte[] sha256(byte[] input) {
+        try {
+            return MessageDigest.getInstance("SHA-256").digest(input);
+        } catch (Exception e) {
+            throw new AssertionError("SHA-256 not available", e);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Stub / in-memory implementations for test isolation
+    // -----------------------------------------------------------------------
+
+    static class StubLightningBackend implements LightningBackend {
+
+        private volatile boolean healthy = true;
+        private volatile Invoice nextInvoice;
+
+        void setHealthy(boolean healthy) {
+            this.healthy = healthy;
+        }
+
+        void setNextInvoice(Invoice invoice) {
+            this.nextInvoice = invoice;
+        }
+
+        @Override
+        public Invoice createInvoice(long amountSats, String memo) {
+            if (!healthy) {
+                throw new RuntimeException("Lightning backend is not available");
+            }
+            if (nextInvoice != null) {
+                return nextInvoice;
+            }
+            byte[] paymentHash = new byte[32];
+            new SecureRandom().nextBytes(paymentHash);
+            Instant now = Instant.now();
+            return new Invoice(paymentHash, "lnbc" + amountSats + "n1pstub", amountSats,
+                    memo, InvoiceStatus.PENDING, null, now, now.plus(1, ChronoUnit.HOURS));
+        }
+
+        @Override
+        public Invoice lookupInvoice(byte[] paymentHash) {
+            if (!healthy) {
+                throw new RuntimeException("Lightning backend is not available");
+            }
+            return null;
+        }
+
+        @Override
+        public boolean isHealthy() {
+            return healthy;
+        }
+    }
+
+    static class InMemoryTestRootKeyStore implements RootKeyStore {
+
+        private final byte[] rootKey;
+
+        InMemoryTestRootKeyStore(byte[] rootKey) {
+            this.rootKey = rootKey.clone();
+        }
+
+        @Override
+        public byte[] generateRootKey() {
+            return rootKey.clone();
+        }
+
+        @Override
+        public byte[] getRootKey(byte[] keyId) {
+            return rootKey.clone();
+        }
+
+        @Override
+        public void revokeRootKey(byte[] keyId) {
+            // no-op for tests
+        }
+    }
+
+    static class InMemoryTestCredentialStore implements CredentialStore {
+
+        private final Map<String, L402Credential> store = new ConcurrentHashMap<>();
+
+        @Override
+        public void store(String tokenId, L402Credential credential, long ttlSeconds) {
+            store.put(tokenId, credential);
+        }
+
+        @Override
+        public L402Credential get(String tokenId) {
+            return store.get(tokenId);
+        }
+
+        @Override
+        public void revoke(String tokenId) {
+            store.remove(tokenId);
+        }
+
+        @Override
+        public long activeCount() {
+            return store.size();
+        }
+    }
+}

@@ -7,6 +7,8 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
 import org.springframework.web.util.pattern.PathPattern;
 import org.springframework.web.util.pattern.PathPatternParser;
 
+import java.util.Collection;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -104,6 +106,13 @@ public class L402EndpointRegistry {
                 }
             }
         }
+    }
+
+    /**
+     * Returns an unmodifiable view of all registered endpoint configurations.
+     */
+    public Collection<L402EndpointConfig> getConfigs() {
+        return Collections.unmodifiableCollection(configs.values());
     }
 
     /**

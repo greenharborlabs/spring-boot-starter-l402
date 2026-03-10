@@ -10,3 +10,4 @@ specs/
 .specify/
 # Ignore the entire claude directory and all its contents
 .claude/
+.vscode/settings.json

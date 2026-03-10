@@ -31,7 +31,6 @@ import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Base64;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 
@@ -54,16 +53,14 @@ public class L402SecurityFilter implements Filter {
     private static final String AUTHORIZATION_HEADER = "Authorization";
     private static final String L402_PREFIX = "L402 ";
     private static final String LSAT_PREFIX = "LSAT ";
-    private static final HexFormat HEX = HexFormat.of();
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final L402EndpointRegistry registry;
     private final LightningBackend lightningBackend;
     private final RootKeyStore rootKeyStore;
-    private final CredentialStore credentialStore;
-    private final List<CaveatVerifier> caveatVerifiers;
     private final L402Validator validator;
     private final ApplicationContext applicationContext;
+    private volatile L402Metrics metrics;
 
     public L402SecurityFilter(L402EndpointRegistry registry,
                               LightningBackend lightningBackend,
@@ -85,12 +82,19 @@ public class L402SecurityFilter implements Filter {
         this.registry = Objects.requireNonNull(registry, "registry must not be null");
         this.lightningBackend = Objects.requireNonNull(lightningBackend, "lightningBackend must not be null");
         this.rootKeyStore = Objects.requireNonNull(rootKeyStore, "rootKeyStore must not be null");
-        this.credentialStore = Objects.requireNonNull(credentialStore, "credentialStore must not be null");
-        this.caveatVerifiers = List.copyOf(
-                Objects.requireNonNull(caveatVerifiers, "caveatVerifiers must not be null"));
+        Objects.requireNonNull(credentialStore, "credentialStore must not be null");
+        Objects.requireNonNull(caveatVerifiers, "caveatVerifiers must not be null");
         String resolvedServiceName = (serviceName == null || serviceName.isBlank()) ? "default" : serviceName;
         this.validator = new L402Validator(rootKeyStore, credentialStore, caveatVerifiers, resolvedServiceName);
         this.applicationContext = applicationContext;
+    }
+
+    /**
+     * Sets the optional metrics recorder. When non-null, the filter will
+     * record Micrometer counters at each decision point (challenge, pass, reject).
+     */
+    public void setMetrics(L402Metrics metrics) {
+        this.metrics = metrics;
     }
 
     @Override
@@ -126,6 +130,7 @@ public class L402SecurityFilter implements Filter {
                 || (!authHeader.startsWith(L402_PREFIX) && !authHeader.startsWith(LSAT_PREFIX))) {
             try {
                 writePaymentRequiredResponse(httpRequest, httpResponse, config);
+                recordChallenge(path);
             } catch (Exception e) {
                 log.log(System.Logger.Level.WARNING, "Failed to create invoice for {0} {1}: {2}", method, path, e.getMessage());
                 if (!httpResponse.isCommitted()) {
@@ -146,6 +151,7 @@ public class L402SecurityFilter implements Filter {
                     Instant.now().plus(config.timeoutSeconds(), ChronoUnit.SECONDS).toString());
 
             chain.doFilter(request, response);
+            recordPassed(path, config.priceSats());
 
         } catch (L402Exception e) {
             ErrorCode errorCode = e.getErrorCode();
@@ -154,6 +160,7 @@ public class L402SecurityFilter implements Filter {
                 // Malformed L402 header: issue a new challenge
                 try {
                     writePaymentRequiredResponse(httpRequest, httpResponse, config);
+                    recordChallenge(path);
                 } catch (Exception ex) {
                     log.log(System.Logger.Level.WARNING, "Failed to create invoice for {0} {1}: {2}", method, path, ex.getMessage());
                     if (!httpResponse.isCommitted()) {
@@ -162,6 +169,7 @@ public class L402SecurityFilter implements Filter {
                 }
             } else {
                 writeErrorResponse(httpResponse, errorCode, e.getMessage(), e.getTokenId());
+                recordRejected(path);
             }
         } catch (Exception e) {
             // Fail closed: any unexpected exception from validation produces 503, never 500
@@ -269,6 +277,30 @@ public class L402SecurityFilter implements Filter {
         response.setContentType("application/json");
         response.getWriter().write("""
                 {"code": 503, "error": "LIGHTNING_UNAVAILABLE", "message": "Lightning backend is not available. Please try again later."}""");
+    }
+
+    private void recordChallenge(String path) {
+        try {
+            if (metrics != null) { metrics.recordChallenge(path); }
+        } catch (Exception e) {
+            log.log(System.Logger.Level.WARNING, "Failed to record challenge metric: {0}", e.getMessage());
+        }
+    }
+
+    private void recordPassed(String path, long priceSats) {
+        try {
+            if (metrics != null) { metrics.recordPassed(path, priceSats); }
+        } catch (Exception e) {
+            log.log(System.Logger.Level.WARNING, "Failed to record passed metric: {0}", e.getMessage());
+        }
+    }
+
+    private void recordRejected(String path) {
+        try {
+            if (metrics != null) { metrics.recordRejected(path); }
+        } catch (Exception e) {
+            log.log(System.Logger.Level.WARNING, "Failed to record rejected metric: {0}", e.getMessage());
+        }
     }
 
     private static String escapeJson(String value) {
