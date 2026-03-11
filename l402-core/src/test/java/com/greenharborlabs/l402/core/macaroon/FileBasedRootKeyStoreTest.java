@@ -46,9 +46,9 @@ class FileBasedRootKeyStoreTest {
         @Test
         @DisplayName("returns non-null byte array of 32 bytes")
         void returnsThirtyTwoBytes() {
-            byte[] key = store.generateRootKey();
+            RootKeyStore.GenerationResult result = store.generateRootKey();
 
-            assertThat(key).isNotNull().hasSize(KEY_LENGTH);
+            assertThat(result.rootKey()).isNotNull().hasSize(KEY_LENGTH);
         }
 
         @Test
@@ -68,8 +68,8 @@ class FileBasedRootKeyStoreTest {
         @Test
         @DisplayName("key file name is hex-encoded tokenId")
         void keyFileNameIsHexEncodedTokenId() throws IOException {
-            store.generateRootKey();
-            byte[] keyId = store.getLastGeneratedKeyId();
+            RootKeyStore.GenerationResult result = store.generateRootKey();
+            byte[] keyId = result.tokenId();
             String expectedFileName = HEX.formatHex(keyId);
 
             assertThat(tempDir.resolve(expectedFileName)).exists().isRegularFile();
@@ -82,8 +82,8 @@ class FileBasedRootKeyStoreTest {
             assumeThat(tempDir.getFileSystem().supportedFileAttributeViews())
                     .contains("posix");
 
-            store.generateRootKey();
-            byte[] keyId = store.getLastGeneratedKeyId();
+            RootKeyStore.GenerationResult result = store.generateRootKey();
+            byte[] keyId = result.tokenId();
             String fileName = HEX.formatHex(keyId);
             Path keyFile = tempDir.resolve(fileName);
 
@@ -147,8 +147,9 @@ class FileBasedRootKeyStoreTest {
         @Test
         @DisplayName("returns same key that was generated")
         void returnsSameKeyThatWasGenerated() {
-            byte[] key = store.generateRootKey();
-            byte[] keyId = store.getLastGeneratedKeyId();
+            RootKeyStore.GenerationResult result = store.generateRootKey();
+            byte[] key = result.rootKey();
+            byte[] keyId = result.tokenId();
 
             byte[] retrieved = store.getRootKey(keyId);
 
@@ -158,8 +159,9 @@ class FileBasedRootKeyStoreTest {
         @Test
         @DisplayName("reads back correctly from a fresh store instance over same directory")
         void readsBackFromFreshInstance() {
-            byte[] key = store.generateRootKey();
-            byte[] keyId = store.getLastGeneratedKeyId();
+            RootKeyStore.GenerationResult result = store.generateRootKey();
+            byte[] key = result.rootKey();
+            byte[] keyId = result.tokenId();
 
             // Create a new store pointing at the same directory
             FileBasedRootKeyStore freshStore = new FileBasedRootKeyStore(tempDir);
@@ -177,8 +179,8 @@ class FileBasedRootKeyStoreTest {
         @Test
         @DisplayName("after revocation, getRootKey returns null")
         void revokedKeyReturnsNull() {
-            store.generateRootKey();
-            byte[] keyId = store.getLastGeneratedKeyId();
+            RootKeyStore.GenerationResult result = store.generateRootKey();
+            byte[] keyId = result.tokenId();
 
             store.revokeRootKey(keyId);
 
@@ -188,8 +190,8 @@ class FileBasedRootKeyStoreTest {
         @Test
         @DisplayName("revocation deletes the key file from disk")
         void revocationDeletesFile() {
-            store.generateRootKey();
-            byte[] keyId = store.getLastGeneratedKeyId();
+            RootKeyStore.GenerationResult result = store.generateRootKey();
+            byte[] keyId = result.tokenId();
             String fileName = HEX.formatHex(keyId);
             Path keyFile = tempDir.resolve(fileName);
 
@@ -219,8 +221,9 @@ class FileBasedRootKeyStoreTest {
         @DisplayName("concurrent read and write do not corrupt state")
         void concurrentReadWriteSafe() throws InterruptedException {
             // Pre-generate a key to read concurrently
-            byte[] key = store.generateRootKey();
-            byte[] keyId = store.getLastGeneratedKeyId();
+            RootKeyStore.GenerationResult genResult = store.generateRootKey();
+            byte[] key = genResult.rootKey();
+            byte[] keyId = genResult.tokenId();
 
             int threadCount = 32;
             ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();

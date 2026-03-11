@@ -13,6 +13,8 @@ import com.greenharborlabs.l402.core.macaroon.MacaroonIdentifier;
 import com.greenharborlabs.l402.core.macaroon.MacaroonMinter;
 import com.greenharborlabs.l402.core.macaroon.MacaroonSerializer;
 import com.greenharborlabs.l402.core.macaroon.RootKeyStore;
+import com.greenharborlabs.l402.core.macaroon.ServicesCaveatVerifier;
+import com.greenharborlabs.l402.core.macaroon.ValidUntilCaveatVerifier;
 import com.greenharborlabs.l402.core.protocol.L402Credential;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -40,6 +42,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
@@ -73,6 +76,8 @@ class L402SecurityFilterTest {
     private static final long PRICE_SATS = 10;
     private static final String PROTECTED_PATH = "/api/protected";
     private static final String PUBLIC_PATH = "/api/public";
+    private static final String SERVICE_NAME = "test-service";
+    private static final long TIMEOUT_SECONDS = 600;
 
     static {
         new SecureRandom().nextBytes(ROOT_KEY);
@@ -83,6 +88,9 @@ class L402SecurityFilterTest {
 
     @Autowired
     private LightningBackend lightningBackend;
+
+    @Autowired
+    private L402EarningsTracker earningsTracker;
 
     // -----------------------------------------------------------------------
     // Test application and configuration
@@ -109,7 +117,7 @@ class L402SecurityFilterTest {
 
         @Bean
         List<CaveatVerifier> caveatVerifiers() {
-            return List.of();
+            return List.of(new ServicesCaveatVerifier(), new ValidUntilCaveatVerifier("test-service"));
         }
 
         @Bean
@@ -122,16 +130,24 @@ class L402SecurityFilterTest {
         }
 
         @Bean
+        L402EarningsTracker l402EarningsTracker() {
+            return new L402EarningsTracker();
+        }
+
+        @Bean
         L402SecurityFilter l402SecurityFilter(
                 L402EndpointRegistry endpointRegistry,
                 LightningBackend lightningBackendBean,
                 RootKeyStore rootKeyStore,
                 CredentialStore credentialStore,
-                List<CaveatVerifier> caveatVerifiers
+                List<CaveatVerifier> caveatVerifiers,
+                L402EarningsTracker l402EarningsTracker
         ) {
-            return new L402SecurityFilter(
+            var filter = new L402SecurityFilter(
                     endpointRegistry, lightningBackendBean, rootKeyStore, credentialStore, caveatVerifiers, "test-service"
             );
+            filter.setEarningsTracker(l402EarningsTracker);
+            return filter;
         }
 
         @Bean
@@ -240,7 +256,7 @@ class L402SecurityFilterTest {
 
             // Mint a real macaroon using the known root key
             MacaroonIdentifier identifier = new MacaroonIdentifier(0, paymentHash, tokenId);
-            Macaroon macaroon = MacaroonMinter.mint(ROOT_KEY, identifier, null, List.of());
+            Macaroon macaroon = MacaroonMinter.mint(ROOT_KEY, identifier, null, validCaveats());
 
             // Serialize the macaroon to V2 binary and base64 encode
             byte[] serialized = MacaroonSerializer.serializeV2(macaroon);
@@ -274,7 +290,7 @@ class L402SecurityFilterTest {
             String expectedTokenIdHex = HEX.formatHex(tokenId);
 
             MacaroonIdentifier identifier = new MacaroonIdentifier(0, paymentHash, tokenId);
-            Macaroon macaroon = MacaroonMinter.mint(ROOT_KEY, identifier, null, List.of());
+            Macaroon macaroon = MacaroonMinter.mint(ROOT_KEY, identifier, null, validCaveats());
 
             byte[] serialized = MacaroonSerializer.serializeV2(macaroon);
             String macaroonBase64 = Base64.getEncoder().encodeToString(serialized);
@@ -340,6 +356,135 @@ class L402SecurityFilterTest {
         }
     }
 
+    @Nested
+    @DisplayName("earnings tracker integration")
+    class EarningsTrackerIntegration {
+
+        @BeforeEach
+        void setUp() {
+            ((StubLightningBackend) lightningBackend).setHealthy(true);
+            ((StubLightningBackend) lightningBackend).setNextInvoice(createStubInvoice());
+        }
+
+        @Test
+        @DisplayName("increments invoices created after 402 challenge")
+        void incrementsInvoicesCreatedAfter402() throws Exception {
+            long before = earningsTracker.getTotalInvoicesCreated();
+
+            mockMvc.perform(get(PROTECTED_PATH))
+                    .andExpect(status().isPaymentRequired());
+
+            assertThat(earningsTracker.getTotalInvoicesCreated()).isEqualTo(before + 1);
+        }
+
+        @Test
+        @DisplayName("increments sats earned after successful credential validation")
+        void incrementsSatsEarnedAfterValidCredential() throws Exception {
+            long satsBefore = earningsTracker.getTotalSatsEarned();
+            long settledBefore = earningsTracker.getTotalInvoicesSettled();
+
+            // Generate a valid credential
+            byte[] preimage = new byte[32];
+            new SecureRandom().nextBytes(preimage);
+            byte[] paymentHash = sha256(preimage);
+            byte[] tokenId = new byte[32];
+            new SecureRandom().nextBytes(tokenId);
+
+            MacaroonIdentifier identifier = new MacaroonIdentifier(0, paymentHash, tokenId);
+            Macaroon macaroon = MacaroonMinter.mint(ROOT_KEY, identifier, null, validCaveats());
+            byte[] serialized = MacaroonSerializer.serializeV2(macaroon);
+            String macaroonBase64 = Base64.getEncoder().encodeToString(serialized);
+            String preimageHex = HEX.formatHex(preimage);
+            String authHeader = "L402 " + macaroonBase64 + ":" + preimageHex;
+
+            mockMvc.perform(get(PROTECTED_PATH)
+                            .header("Authorization", authHeader))
+                    .andExpect(status().isOk());
+
+            assertThat(earningsTracker.getTotalSatsEarned()).isEqualTo(satsBefore + PRICE_SATS);
+            assertThat(earningsTracker.getTotalInvoicesSettled()).isEqualTo(settledBefore + 1);
+        }
+    }
+
+    @Nested
+    @DisplayName("caveat enforcement")
+    class CaveatEnforcement {
+
+        @BeforeEach
+        void setUp() {
+            ((StubLightningBackend) lightningBackend).setHealthy(true);
+            ((StubLightningBackend) lightningBackend).setNextInvoice(createStubInvoice());
+        }
+
+        @Test
+        @DisplayName("402 challenge macaroon contains services and valid_until caveats")
+        void challengeMacaroonContainsCaveats() throws Exception {
+            var result = mockMvc.perform(get(PROTECTED_PATH))
+                    .andExpect(status().isPaymentRequired())
+                    .andReturn();
+
+            String wwwAuth = result.getResponse().getHeader("WWW-Authenticate");
+            assertThat(wwwAuth).isNotNull();
+
+            // Extract macaroon from WWW-Authenticate header
+            String macaroonB64 = wwwAuth.split("macaroon=\"")[1].split("\"")[0];
+            byte[] macaroonBytes = Base64.getDecoder().decode(macaroonB64);
+            Macaroon macaroon = MacaroonSerializer.deserializeV2(macaroonBytes);
+
+            assertThat(macaroon.caveats()).hasSize(2);
+            assertThat(macaroon.caveats().get(0).key()).isEqualTo("services");
+            assertThat(macaroon.caveats().get(0).value()).isEqualTo(SERVICE_NAME + ":0");
+            assertThat(macaroon.caveats().get(1).key()).isEqualTo(SERVICE_NAME + "_valid_until");
+            // valid_until should be a numeric epoch seconds value in the future
+            long epochSeconds = Long.parseLong(macaroon.caveats().get(1).value());
+            assertThat(Instant.ofEpochSecond(epochSeconds)).isAfter(Instant.now());
+        }
+
+        @Test
+        @DisplayName("expired valid_until caveat is rejected as EXPIRED_CREDENTIAL")
+        void expiredCredentialIsRejected() throws Exception {
+            byte[] preimage = new byte[32];
+            new SecureRandom().nextBytes(preimage);
+            byte[] paymentHash = sha256(preimage);
+            byte[] tokenId = new byte[32];
+            new SecureRandom().nextBytes(tokenId);
+
+            MacaroonIdentifier identifier = new MacaroonIdentifier(0, paymentHash, tokenId);
+            Macaroon macaroon = MacaroonMinter.mint(ROOT_KEY, identifier, null, expiredCaveats());
+            byte[] serialized = MacaroonSerializer.serializeV2(macaroon);
+            String macaroonBase64 = Base64.getEncoder().encodeToString(serialized);
+            String preimageHex = HEX.formatHex(preimage);
+            String authHeader = "L402 " + macaroonBase64 + ":" + preimageHex;
+
+            mockMvc.perform(get(PROTECTED_PATH)
+                            .header("Authorization", authHeader))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.error", is("EXPIRED_CREDENTIAL")));
+        }
+
+        @Test
+        @DisplayName("wrong service name in caveat is rejected as INVALID_SERVICE")
+        void wrongServiceIsRejected() throws Exception {
+            byte[] preimage = new byte[32];
+            new SecureRandom().nextBytes(preimage);
+            byte[] paymentHash = sha256(preimage);
+            byte[] tokenId = new byte[32];
+            new SecureRandom().nextBytes(tokenId);
+
+            MacaroonIdentifier identifier = new MacaroonIdentifier(0, paymentHash, tokenId);
+            Macaroon macaroon = MacaroonMinter.mint(ROOT_KEY, identifier, null, wrongServiceCaveats());
+            byte[] serialized = MacaroonSerializer.serializeV2(macaroon);
+            String macaroonBase64 = Base64.getEncoder().encodeToString(serialized);
+            String preimageHex = HEX.formatHex(preimage);
+            String authHeader = "L402 " + macaroonBase64 + ":" + preimageHex;
+
+            mockMvc.perform(get(PROTECTED_PATH)
+                            .header("Authorization", authHeader))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.error", is("INVALID_SERVICE")));
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Test helpers
     // -----------------------------------------------------------------------
@@ -357,6 +502,30 @@ class L402SecurityFilterTest {
                 null,
                 now,
                 now.plus(1, ChronoUnit.HOURS)
+        );
+    }
+
+    private static List<Caveat> validCaveats() {
+        Instant validUntil = Instant.now().plusSeconds(TIMEOUT_SECONDS);
+        return List.of(
+                new Caveat("services", SERVICE_NAME + ":0"),
+                new Caveat(SERVICE_NAME + "_valid_until", String.valueOf(validUntil.getEpochSecond()))
+        );
+    }
+
+    private static List<Caveat> expiredCaveats() {
+        Instant expired = Instant.now().minusSeconds(60);
+        return List.of(
+                new Caveat("services", SERVICE_NAME + ":0"),
+                new Caveat(SERVICE_NAME + "_valid_until", String.valueOf(expired.getEpochSecond()))
+        );
+    }
+
+    private static List<Caveat> wrongServiceCaveats() {
+        Instant validUntil = Instant.now().plusSeconds(TIMEOUT_SECONDS);
+        return List.of(
+                new Caveat("services", "wrong-service:0"),
+                new Caveat("wrong-service_valid_until", String.valueOf(validUntil.getEpochSecond()))
         );
     }
 
@@ -431,8 +600,10 @@ class L402SecurityFilterTest {
         }
 
         @Override
-        public byte[] generateRootKey() {
-            return rootKey.clone();
+        public GenerationResult generateRootKey() {
+            byte[] tokenId = new byte[32];
+            new SecureRandom().nextBytes(tokenId);
+            return new GenerationResult(rootKey.clone(), tokenId);
         }
 
         @Override

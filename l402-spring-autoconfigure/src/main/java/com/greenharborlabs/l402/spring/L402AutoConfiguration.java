@@ -7,6 +7,8 @@ import com.greenharborlabs.l402.core.macaroon.CaveatVerifier;
 import com.greenharborlabs.l402.core.macaroon.FileBasedRootKeyStore;
 import com.greenharborlabs.l402.core.macaroon.InMemoryRootKeyStore;
 import com.greenharborlabs.l402.core.macaroon.RootKeyStore;
+import com.greenharborlabs.l402.core.macaroon.ServicesCaveatVerifier;
+import com.greenharborlabs.l402.core.macaroon.ValidUntilCaveatVerifier;
 import com.greenharborlabs.l402.core.protocol.L402Validator;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -79,8 +81,12 @@ public class L402AutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean(name = "caveatVerifiers")
-    public List<CaveatVerifier> caveatVerifiers() {
-        return List.of();
+    public List<CaveatVerifier> caveatVerifiers(L402Properties properties) {
+        String svcName = properties.getServiceName();
+        if (svcName == null || svcName.isBlank()) {
+            svcName = "default";
+        }
+        return List.of(new ServicesCaveatVerifier(), new ValidUntilCaveatVerifier(svcName));
     }
 
     @Bean
@@ -111,12 +117,15 @@ public class L402AutoConfiguration {
                                                   RootKeyStore rootKeyStore,
                                                   L402Validator l402Validator,
                                                   ApplicationContext applicationContext,
-                                                  @Autowired(required = false) L402Metrics l402Metrics) {
+                                                  L402Properties properties,
+                                                  @Autowired(required = false) L402Metrics l402Metrics,
+                                                  L402EarningsTracker l402EarningsTracker) {
         var filter = new L402SecurityFilter(registry, lightningBackend, rootKeyStore,
-                l402Validator, applicationContext);
+                l402Validator, applicationContext, properties.getServiceName());
         if (l402Metrics != null) {
             filter.setMetrics(l402Metrics);
         }
+        filter.setEarningsTracker(l402EarningsTracker);
         return filter;
     }
 

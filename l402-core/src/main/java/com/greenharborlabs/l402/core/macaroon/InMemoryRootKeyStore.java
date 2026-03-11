@@ -16,10 +16,9 @@ public final class InMemoryRootKeyStore implements RootKeyStore {
 
     private final SecureRandom secureRandom = new SecureRandom();
     private final ConcurrentHashMap<String, byte[]> keys = new ConcurrentHashMap<>();
-    private volatile byte[] lastGeneratedKeyId;
 
     @Override
-    public byte[] generateRootKey() {
+    public GenerationResult generateRootKey() {
         byte[] rootKey = new byte[KEY_LENGTH];
         secureRandom.nextBytes(rootKey);
 
@@ -27,10 +26,9 @@ public final class InMemoryRootKeyStore implements RootKeyStore {
         secureRandom.nextBytes(tokenId);
 
         String hexKeyId = HEX.formatHex(tokenId);
-        keys.put(hexKeyId, rootKey);
-        lastGeneratedKeyId = Arrays.copyOf(tokenId, tokenId.length);
+        keys.put(hexKeyId, Arrays.copyOf(rootKey, rootKey.length));
 
-        return Arrays.copyOf(rootKey, rootKey.length);
+        return new GenerationResult(rootKey, tokenId);
     }
 
     @Override
@@ -44,14 +42,5 @@ public final class InMemoryRootKeyStore implements RootKeyStore {
     public void revokeRootKey(byte[] keyId) {
         String hexKeyId = HEX.formatHex(keyId);
         keys.remove(hexKeyId);
-    }
-
-    /**
-     * Returns a defensive copy of the tokenId from the last {@link #generateRootKey()} call.
-     * Used by tests to retrieve the keyId needed for {@link #getRootKey(byte[])}.
-     */
-    public byte[] getLastGeneratedKeyId() {
-        byte[] id = lastGeneratedKeyId;
-        return id == null ? null : Arrays.copyOf(id, id.length);
     }
 }

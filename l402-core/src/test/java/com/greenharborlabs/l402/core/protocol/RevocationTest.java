@@ -3,6 +3,7 @@ package com.greenharborlabs.l402.core.protocol;
 import com.greenharborlabs.l402.core.credential.InMemoryCredentialStore;
 import com.greenharborlabs.l402.core.macaroon.InMemoryRootKeyStore;
 import com.greenharborlabs.l402.core.macaroon.Macaroon;
+import com.greenharborlabs.l402.core.macaroon.RootKeyStore;
 import com.greenharborlabs.l402.core.macaroon.MacaroonIdentifier;
 import com.greenharborlabs.l402.core.macaroon.MacaroonMinter;
 import com.greenharborlabs.l402.core.macaroon.MacaroonSerializer;
@@ -43,8 +44,9 @@ class RevocationTest {
         rootKeyStore = new InMemoryRootKeyStore();
         credentialStore = new InMemoryCredentialStore();
 
-        rootKey = rootKeyStore.generateRootKey();
-        tokenIdBytes = rootKeyStore.getLastGeneratedKeyId();
+        RootKeyStore.GenerationResult genResult = rootKeyStore.generateRootKey();
+        rootKey = genResult.rootKey();
+        tokenIdBytes = genResult.tokenId();
 
         preimageBytes = new byte[32];
         RANDOM.nextBytes(preimageBytes);

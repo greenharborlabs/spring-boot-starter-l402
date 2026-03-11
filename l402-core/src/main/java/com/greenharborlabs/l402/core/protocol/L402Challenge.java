@@ -1,6 +1,7 @@
 package com.greenharborlabs.l402.core.protocol;
 
 import com.greenharborlabs.l402.core.macaroon.Macaroon;
+import com.greenharborlabs.l402.core.macaroon.MacaroonSerializer;
 
 import java.util.Base64;
 import java.util.Objects;
@@ -35,9 +36,7 @@ public record L402Challenge(Macaroon macaroon, String bolt11Invoice, long priceS
      * @return the header value string
      */
     public String toWwwAuthenticateHeader() {
-        // TODO: This encodes only the identifier, not the full serialized macaroon.
-        //       Update to use full macaroon serialization once Macaroon.serialize() is implemented.
-        String macaroonBase64 = Base64.getEncoder().encodeToString(macaroon.identifier());
+        String macaroonBase64 = Base64.getEncoder().encodeToString(MacaroonSerializer.serializeV2(macaroon));
         return "L402 macaroon=\"" + macaroonBase64 + "\", invoice=\"" + bolt11Invoice + "\"";
     }
 

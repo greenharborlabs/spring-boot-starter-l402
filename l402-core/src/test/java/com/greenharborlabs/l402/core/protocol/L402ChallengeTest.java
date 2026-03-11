@@ -1,0 +1,107 @@
+package com.greenharborlabs.l402.core.protocol;
+
+import com.greenharborlabs.l402.core.macaroon.Caveat;
+import com.greenharborlabs.l402.core.macaroon.Macaroon;
+import com.greenharborlabs.l402.core.macaroon.MacaroonIdentifier;
+import com.greenharborlabs.l402.core.macaroon.MacaroonMinter;
+import com.greenharborlabs.l402.core.macaroon.MacaroonSerializer;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import java.security.SecureRandom;
+import java.util.Base64;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+@DisplayName("L402Challenge")
+class L402ChallengeTest {
+
+    private static final SecureRandom RANDOM = new SecureRandom();
+    private static final Pattern HEADER_PATTERN =
+            Pattern.compile("L402 macaroon=\"([^\"]+)\", invoice=\"([^\"]+)\"");
+
+    private byte[] rootKey;
+    private byte[] paymentHash;
+    private byte[] tokenId;
+
+    @BeforeEach
+    void setUp() {
+        rootKey = new byte[32];
+        RANDOM.nextBytes(rootKey);
+        paymentHash = new byte[32];
+        RANDOM.nextBytes(paymentHash);
+        tokenId = new byte[32];
+        RANDOM.nextBytes(tokenId);
+    }
+
+    @Test
+    @DisplayName("toWwwAuthenticateHeader serializes full macaroon, not just identifier")
+    void headerContainsFullSerializedMacaroon() {
+        MacaroonIdentifier id = new MacaroonIdentifier(0, paymentHash, tokenId);
+        List<Caveat> caveats = List.of(new Caveat("service", "example"));
+        Macaroon macaroon = MacaroonMinter.mint(rootKey, id, null, caveats);
+        String invoice = "lnbc100n1p0test";
+
+        L402Challenge challenge = new L402Challenge(macaroon, invoice, 100, "test");
+        String header = challenge.toWwwAuthenticateHeader();
+
+        Matcher matcher = HEADER_PATTERN.matcher(header);
+        assertThat(matcher.matches())
+                .as("Header must match L402 format")
+                .isTrue();
+
+        String macaroonBase64 = matcher.group(1);
+        byte[] decoded = Base64.getDecoder().decode(macaroonBase64);
+        Macaroon deserialized = MacaroonSerializer.deserializeV2(decoded);
+
+        assertThat(deserialized.identifier()).isEqualTo(macaroon.identifier());
+        assertThat(deserialized.signature()).isEqualTo(macaroon.signature());
+        assertThat(deserialized.caveats()).isEqualTo(macaroon.caveats());
+
+        assertThat(matcher.group(2)).isEqualTo(invoice);
+    }
+
+    @Test
+    @DisplayName("toWwwAuthenticateHeader round-trips macaroon without caveats")
+    void headerRoundTripNoCaveats() {
+        MacaroonIdentifier id = new MacaroonIdentifier(0, paymentHash, tokenId);
+        Macaroon macaroon = MacaroonMinter.mint(rootKey, id, "https://example.com", List.of());
+        String invoice = "lnbc200n1p0test";
+
+        L402Challenge challenge = new L402Challenge(macaroon, invoice, 200, "no caveats");
+        String header = challenge.toWwwAuthenticateHeader();
+
+        Matcher matcher = HEADER_PATTERN.matcher(header);
+        assertThat(matcher.matches()).isTrue();
+
+        byte[] decoded = Base64.getDecoder().decode(matcher.group(1));
+        Macaroon deserialized = MacaroonSerializer.deserializeV2(decoded);
+
+        assertThat(deserialized.identifier()).isEqualTo(macaroon.identifier());
+        assertThat(deserialized.signature()).isEqualTo(macaroon.signature());
+        assertThat(deserialized.location()).isEqualTo(macaroon.location());
+        assertThat(deserialized.caveats()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("serialized macaroon is longer than just the 66-byte identifier")
+    void serializedMacaroonIsLongerThanIdentifier() {
+        MacaroonIdentifier id = new MacaroonIdentifier(0, paymentHash, tokenId);
+        Macaroon macaroon = MacaroonMinter.mint(rootKey, id, null, List.of());
+
+        L402Challenge challenge = new L402Challenge(macaroon, "lnbc1test", 1, "size check");
+        String header = challenge.toWwwAuthenticateHeader();
+
+        Matcher matcher = HEADER_PATTERN.matcher(header);
+        assertThat(matcher.matches()).isTrue();
+
+        byte[] decoded = Base64.getDecoder().decode(matcher.group(1));
+        // Full V2 serialization includes version byte, field tags, lengths, signature
+        // so it must be longer than the raw 66-byte identifier
+        assertThat(decoded.length).isGreaterThan(66);
+    }
+}

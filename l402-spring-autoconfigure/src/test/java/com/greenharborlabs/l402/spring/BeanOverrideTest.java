@@ -143,8 +143,8 @@ class BeanOverrideTest {
     static class CustomRootKeyStore implements RootKeyStore {
 
         @Override
-        public byte[] generateRootKey() {
-            return new byte[32];
+        public GenerationResult generateRootKey() {
+            return new GenerationResult(new byte[32], new byte[32]);
         }
 
         @Override

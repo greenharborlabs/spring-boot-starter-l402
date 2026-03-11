@@ -4,8 +4,7 @@ import com.greenharborlabs.l402.core.credential.CredentialStore;
 import com.greenharborlabs.l402.core.lightning.Invoice;
 import com.greenharborlabs.l402.core.lightning.LightningBackend;
 import com.greenharborlabs.l402.core.macaroon.CaveatVerifier;
-import com.greenharborlabs.l402.core.macaroon.FileBasedRootKeyStore;
-import com.greenharborlabs.l402.core.macaroon.InMemoryRootKeyStore;
+import com.greenharborlabs.l402.core.macaroon.Caveat;
 import com.greenharborlabs.l402.core.macaroon.Macaroon;
 import com.greenharborlabs.l402.core.macaroon.MacaroonIdentifier;
 import com.greenharborlabs.l402.core.macaroon.MacaroonMinter;
@@ -27,7 +26,6 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.ApplicationContext;
 
 import java.io.IOException;
-import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Base64;
@@ -53,14 +51,15 @@ public class L402SecurityFilter implements Filter {
     private static final String AUTHORIZATION_HEADER = "Authorization";
     private static final String L402_PREFIX = "L402 ";
     private static final String LSAT_PREFIX = "LSAT ";
-    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final L402EndpointRegistry registry;
     private final LightningBackend lightningBackend;
     private final RootKeyStore rootKeyStore;
     private final L402Validator validator;
     private final ApplicationContext applicationContext;
+    private final String serviceName;
     private volatile L402Metrics metrics;
+    private volatile L402EarningsTracker earningsTracker;
 
     /**
      * Primary constructor accepting a pre-built L402Validator (used by auto-configuration).
@@ -69,12 +68,14 @@ public class L402SecurityFilter implements Filter {
                               LightningBackend lightningBackend,
                               RootKeyStore rootKeyStore,
                               L402Validator validator,
-                              ApplicationContext applicationContext) {
+                              ApplicationContext applicationContext,
+                              String serviceName) {
         this.registry = Objects.requireNonNull(registry, "registry must not be null");
         this.lightningBackend = Objects.requireNonNull(lightningBackend, "lightningBackend must not be null");
         this.rootKeyStore = Objects.requireNonNull(rootKeyStore, "rootKeyStore must not be null");
         this.validator = Objects.requireNonNull(validator, "validator must not be null");
         this.applicationContext = applicationContext;
+        this.serviceName = (serviceName == null || serviceName.isBlank()) ? "default" : serviceName;
     }
 
     /**
@@ -106,7 +107,8 @@ public class L402SecurityFilter implements Filter {
                         Objects.requireNonNull(credentialStore, "credentialStore must not be null"),
                         Objects.requireNonNull(caveatVerifiers, "caveatVerifiers must not be null"),
                         (serviceName == null || serviceName.isBlank()) ? "default" : serviceName),
-                applicationContext);
+                applicationContext,
+                serviceName);
     }
 
     /**
@@ -115,6 +117,14 @@ public class L402SecurityFilter implements Filter {
      */
     public void setMetrics(L402Metrics metrics) {
         this.metrics = metrics;
+    }
+
+    /**
+     * Sets the optional earnings tracker. When non-null, the filter will
+     * record invoice creation and settlement events for the actuator endpoint.
+     */
+    public void setEarningsTracker(L402EarningsTracker earningsTracker) {
+        this.earningsTracker = earningsTracker;
     }
 
     @Override
@@ -205,10 +215,10 @@ public class L402SecurityFilter implements Filter {
                                                L402EndpointConfig config)
             throws IOException {
 
-        // Generate root key and retrieve the tokenId the store used internally
-        byte[][] outRootKey = new byte[1][];
-        byte[] tokenId = generateRootKeyAndGetTokenId(outRootKey);
-        byte[] rootKey = outRootKey[0];
+        // Generate root key and tokenId atomically
+        RootKeyStore.GenerationResult generationResult = rootKeyStore.generateRootKey();
+        byte[] rootKey = generationResult.rootKey();
+        byte[] tokenId = generationResult.tokenId();
 
         // Resolve effective price: dynamic strategy overrides static annotation value
         long effectivePrice = resolvePrice(request, config);
@@ -216,9 +226,21 @@ public class L402SecurityFilter implements Filter {
         // Create Lightning invoice
         Invoice invoice = lightningBackend.createInvoice(effectivePrice, config.description());
 
-        // Build MacaroonIdentifier and mint macaroon
+        // Record invoice creation in earnings tracker
+        try {
+            if (earningsTracker != null) { earningsTracker.recordInvoiceCreated(); }
+        } catch (Exception e) {
+            log.log(System.Logger.Level.WARNING, "Failed to record invoice creation in earnings tracker: {0}", e.getMessage());
+        }
+
+        // Build MacaroonIdentifier and mint macaroon with service and expiry caveats
         MacaroonIdentifier identifier = new MacaroonIdentifier(0, invoice.paymentHash(), tokenId);
-        Macaroon macaroon = MacaroonMinter.mint(rootKey, identifier, null, List.of());
+        Instant validUntil = Instant.now().plusSeconds(config.timeoutSeconds());
+        List<Caveat> caveats = List.of(
+                new Caveat("services", serviceName + ":0"),
+                new Caveat(serviceName + "_valid_until", String.valueOf(validUntil.getEpochSecond()))
+        );
+        Macaroon macaroon = MacaroonMinter.mint(rootKey, identifier, null, caveats);
 
         // Serialize and encode
         byte[] serialized = MacaroonSerializer.serializeV2(macaroon);
@@ -233,29 +255,6 @@ public class L402SecurityFilter implements Filter {
         response.getWriter().write("""
                 {"code": 402, "message": "Payment required", "price_sats": %d, "description": "%s", "invoice": "%s"}"""
                 .formatted(effectivePrice, escapeJson(config.description()), invoice.bolt11()));
-    }
-
-    /**
-     * Generates a root key via the store and retrieves the tokenId that the store used.
-     * Uses instanceof pattern matching to access the store-specific getLastGeneratedKeyId() method.
-     * The generate+get pair is synchronized on the store to prevent interleaving.
-     */
-    private byte[] generateRootKeyAndGetTokenId(byte[][] outRootKey) {
-        synchronized (rootKeyStore) {
-            outRootKey[0] = rootKeyStore.generateRootKey();
-            if (rootKeyStore instanceof InMemoryRootKeyStore mem) {
-                return mem.getLastGeneratedKeyId();
-            } else if (rootKeyStore instanceof FileBasedRootKeyStore file) {
-                return file.getLastGeneratedKeyId();
-            } else {
-                // Fallback: generate a random tokenId. The root key won't be retrievable
-                // by this tokenId — this is a known limitation for custom RootKeyStore impls.
-                // They would need to implement a similar getLastGeneratedKeyId() method.
-                byte[] tokenId = new byte[32];
-                SECURE_RANDOM.nextBytes(tokenId);
-                return tokenId;
-            }
-        }
     }
 
     /**
@@ -312,6 +311,11 @@ public class L402SecurityFilter implements Filter {
             if (metrics != null) { metrics.recordPassed(path, priceSats); }
         } catch (Exception e) {
             log.log(System.Logger.Level.WARNING, "Failed to record passed metric: {0}", e.getMessage());
+        }
+        try {
+            if (earningsTracker != null) { earningsTracker.recordInvoiceSettled(priceSats); }
+        } catch (Exception e) {
+            log.log(System.Logger.Level.WARNING, "Failed to record invoice settlement in earnings tracker: {0}", e.getMessage());
         }
     }
 

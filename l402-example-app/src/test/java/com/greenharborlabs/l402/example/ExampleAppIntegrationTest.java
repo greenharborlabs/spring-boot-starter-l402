@@ -1,6 +1,5 @@
 package com.greenharborlabs.l402.example;
 
-import com.greenharborlabs.l402.core.macaroon.InMemoryRootKeyStore;
 import com.greenharborlabs.l402.core.macaroon.Macaroon;
 import com.greenharborlabs.l402.core.macaroon.MacaroonIdentifier;
 import com.greenharborlabs.l402.core.macaroon.MacaroonMinter;
@@ -125,11 +124,11 @@ class ExampleAppIntegrationTest {
             new SecureRandom().nextBytes(preimage);
             byte[] paymentHash = sha256(preimage);
 
-            // Use the application's InMemoryRootKeyStore to generate a root key
+            // Use the application's RootKeyStore to generate a root key
             // so the filter's validator can look it up by tokenId
-            InMemoryRootKeyStore memStore = (InMemoryRootKeyStore) rootKeyStore;
-            byte[] rootKey = memStore.generateRootKey();
-            byte[] tokenId = memStore.getLastGeneratedKeyId();
+            RootKeyStore.GenerationResult genResult = rootKeyStore.generateRootKey();
+            byte[] rootKey = genResult.rootKey();
+            byte[] tokenId = genResult.tokenId();
 
             // We mint our own macaroon instead of extracting the server-generated one from
             // the 402 challenge because in test-mode the invoice contains a random payment

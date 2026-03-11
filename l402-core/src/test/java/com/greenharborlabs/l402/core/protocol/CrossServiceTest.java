@@ -5,6 +5,7 @@ import com.greenharborlabs.l402.core.macaroon.Caveat;
 import com.greenharborlabs.l402.core.macaroon.CaveatVerifier;
 import com.greenharborlabs.l402.core.macaroon.InMemoryRootKeyStore;
 import com.greenharborlabs.l402.core.macaroon.Macaroon;
+import com.greenharborlabs.l402.core.macaroon.RootKeyStore;
 import com.greenharborlabs.l402.core.macaroon.MacaroonIdentifier;
 import com.greenharborlabs.l402.core.macaroon.MacaroonMinter;
 import com.greenharborlabs.l402.core.macaroon.MacaroonSerializer;
@@ -44,8 +45,9 @@ class CrossServiceTest {
         rootKeyStore = new InMemoryRootKeyStore();
         credentialStore = new InMemoryCredentialStore();
 
-        rootKey = rootKeyStore.generateRootKey();
-        tokenIdBytes = rootKeyStore.getLastGeneratedKeyId();
+        RootKeyStore.GenerationResult genResult = rootKeyStore.generateRootKey();
+        rootKey = genResult.rootKey();
+        tokenIdBytes = genResult.tokenId();
 
         preimageBytes = new byte[32];
         RANDOM.nextBytes(preimageBytes);

@@ -49,10 +49,12 @@ class L402ValidatorTest {
     private final Map<String, byte[]> rootKeyMap = new HashMap<>();
     private final RootKeyStore rootKeyStore = new RootKeyStore() {
         @Override
-        public byte[] generateRootKey() {
+        public GenerationResult generateRootKey() {
             byte[] key = new byte[32];
             RANDOM.nextBytes(key);
-            return key;
+            byte[] tokenId = new byte[32];
+            RANDOM.nextBytes(tokenId);
+            return new GenerationResult(key, tokenId);
         }
 
         @Override
@@ -207,8 +209,8 @@ class L402ValidatorTest {
             // it would fail because there's no root key. The cached path should skip that.
             RootKeyStore emptyKeyStore = new RootKeyStore() {
                 @Override
-                public byte[] generateRootKey() {
-                    return new byte[32];
+                public GenerationResult generateRootKey() {
+                    return new GenerationResult(new byte[32], new byte[32]);
                 }
 
                 @Override

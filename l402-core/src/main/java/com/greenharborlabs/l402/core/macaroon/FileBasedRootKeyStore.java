@@ -32,7 +32,6 @@ public final class FileBasedRootKeyStore implements RootKeyStore {
     private final Path directory;
     private final SecureRandom secureRandom = new SecureRandom();
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
-    private volatile byte[] lastGeneratedKeyId;
     private final boolean posix;
 
     public FileBasedRootKeyStore(Path directory) {
@@ -42,7 +41,7 @@ public final class FileBasedRootKeyStore implements RootKeyStore {
     }
 
     @Override
-    public byte[] generateRootKey() {
+    public GenerationResult generateRootKey() {
         byte[] rootKey = new byte[KEY_LENGTH];
         secureRandom.nextBytes(rootKey);
 
@@ -54,12 +53,11 @@ public final class FileBasedRootKeyStore implements RootKeyStore {
         lock.writeLock().lock();
         try {
             writeKeyFile(hexKeyId, rootKey);
-            lastGeneratedKeyId = Arrays.copyOf(tokenId, tokenId.length);
         } finally {
             lock.writeLock().unlock();
         }
 
-        return Arrays.copyOf(rootKey, rootKey.length);
+        return new GenerationResult(rootKey, tokenId);
     }
 
     @Override
@@ -94,15 +92,6 @@ public final class FileBasedRootKeyStore implements RootKeyStore {
         } finally {
             lock.writeLock().unlock();
         }
-    }
-
-    /**
-     * Returns a defensive copy of the tokenId from the last {@link #generateRootKey()} call.
-     * Used by tests to retrieve the keyId needed for {@link #getRootKey(byte[])}.
-     */
-    public byte[] getLastGeneratedKeyId() {
-        byte[] id = lastGeneratedKeyId;
-        return id == null ? null : Arrays.copyOf(id, id.length);
     }
 
     private void ensureDirectory() {

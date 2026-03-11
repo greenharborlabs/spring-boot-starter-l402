@@ -324,8 +324,8 @@ class L402ActuatorEndpointTest {
         }
 
         @Override
-        public byte[] generateRootKey() {
-            return key.clone();
+        public GenerationResult generateRootKey() {
+            return new GenerationResult(key.clone(), new byte[32]);
         }
 
         @Override

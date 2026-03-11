@@ -4,8 +4,16 @@ import com.greenharborlabs.l402.core.credential.CredentialStore;
 import com.greenharborlabs.l402.core.lightning.Invoice;
 import com.greenharborlabs.l402.core.lightning.InvoiceStatus;
 import com.greenharborlabs.l402.core.lightning.LightningBackend;
+import com.greenharborlabs.l402.core.macaroon.Caveat;
 import com.greenharborlabs.l402.core.macaroon.CaveatVerifier;
+import com.greenharborlabs.l402.core.macaroon.InMemoryRootKeyStore;
+import com.greenharborlabs.l402.core.macaroon.Macaroon;
+import com.greenharborlabs.l402.core.macaroon.MacaroonIdentifier;
+import com.greenharborlabs.l402.core.macaroon.MacaroonMinter;
+import com.greenharborlabs.l402.core.macaroon.MacaroonSerializer;
 import com.greenharborlabs.l402.core.macaroon.RootKeyStore;
+import com.greenharborlabs.l402.core.macaroon.ServicesCaveatVerifier;
+import com.greenharborlabs.l402.core.macaroon.ValidUntilCaveatVerifier;
 import com.greenharborlabs.l402.core.protocol.L402Credential;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -18,45 +26,56 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Base64;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static org.hamcrest.Matchers.containsString;
-import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Verifies that the WWW-Authenticate header in 402 challenge responses uses only
- * the {@code L402} scheme and never the legacy {@code LSAT} scheme (T096, T098).
+ * Integration test using the REAL {@link InMemoryRootKeyStore} (from l402-core).
+ *
+ * <p>Proves end-to-end: request -> 402 challenge -> mint credential using the
+ * real store's generated root key and tokenId -> present L402 credential -> 200.
+ *
+ * <p>This test validates that the {@link RootKeyStore.GenerationResult} refactoring
+ * works correctly with the production implementation, not just test stubs.
  */
-@SpringBootTest(classes = LsatChallengeSchemeTest.TestApp.class)
+@SpringBootTest(classes = L402SecurityFilterRealStoreTest.TestApp.class)
 @AutoConfigureMockMvc
-@DisplayName("WWW-Authenticate header uses L402 scheme, never LSAT")
-class LsatChallengeSchemeTest {
+@DisplayName("L402SecurityFilter with real InMemoryRootKeyStore")
+class L402SecurityFilterRealStoreTest {
 
-    private static final byte[] ROOT_KEY = new byte[32];
+    private static final HexFormat HEX = HexFormat.of();
     private static final long PRICE_SATS = 10;
-    private static final String PROTECTED_PATH = "/api/scheme-test";
-
-    static {
-        new SecureRandom().nextBytes(ROOT_KEY);
-    }
+    private static final String PROTECTED_PATH = "/api/real-store-test";
+    private static final String SERVICE_NAME = "test-service";
+    private static final long TIMEOUT_SECONDS = 600;
 
     @Autowired
     private MockMvc mockMvc;
 
     @Autowired
     private LightningBackend lightningBackend;
+
+    @Autowired
+    private RootKeyStore rootKeyStore;
 
     @BeforeEach
     void setUp() {
@@ -66,21 +85,65 @@ class LsatChallengeSchemeTest {
     }
 
     @Test
-    @DisplayName("T096: 402 challenge WWW-Authenticate header starts with L402 scheme")
-    void wwwAuthenticateStartsWithL402Scheme() throws Exception {
+    @DisplayName("unauthenticated request returns 402 challenge with macaroon and invoice")
+    void unauthenticatedRequestReturns402() throws Exception {
         mockMvc.perform(get(PROTECTED_PATH))
                 .andExpect(status().isPaymentRequired())
                 .andExpect(header().exists("WWW-Authenticate"))
-                .andExpect(header().string("WWW-Authenticate", startsWith("L402 ")));
+                .andExpect(header().string("WWW-Authenticate", startsWith("L402 ")))
+                .andExpect(header().string("WWW-Authenticate", containsString("macaroon=")))
+                .andExpect(header().string("WWW-Authenticate", containsString("invoice=")));
     }
 
     @Test
-    @DisplayName("T098: 402 challenge WWW-Authenticate header does not contain LSAT anywhere")
-    void wwwAuthenticateDoesNotContainLsat() throws Exception {
-        mockMvc.perform(get(PROTECTED_PATH))
-                .andExpect(status().isPaymentRequired())
-                .andExpect(header().exists("WWW-Authenticate"))
-                .andExpect(header().string("WWW-Authenticate", not(containsString("LSAT"))));
+    @DisplayName("full 402 -> credential -> 200 flow using real InMemoryRootKeyStore")
+    void fullFlowWithRealStore() throws Exception {
+        // Generate a preimage and compute its SHA-256 payment hash
+        byte[] preimage = new byte[32];
+        new SecureRandom().nextBytes(preimage);
+        byte[] paymentHash = sha256(preimage);
+
+        // Use the REAL InMemoryRootKeyStore to generate a root key and tokenId
+        RootKeyStore.GenerationResult genResult = rootKeyStore.generateRootKey();
+        byte[] rootKey = genResult.rootKey();
+        byte[] tokenId = genResult.tokenId();
+
+        // Mint a macaroon using the real root key with service and expiry caveats
+        MacaroonIdentifier identifier = new MacaroonIdentifier(0, paymentHash, tokenId);
+        Instant validUntil = Instant.now().plusSeconds(TIMEOUT_SECONDS);
+        List<Caveat> caveats = List.of(
+                new Caveat("services", SERVICE_NAME + ":0"),
+                new Caveat(SERVICE_NAME + "_valid_until", String.valueOf(validUntil.getEpochSecond()))
+        );
+        Macaroon macaroon = MacaroonMinter.mint(rootKey, identifier, null, caveats);
+        byte[] serialized = MacaroonSerializer.serializeV2(macaroon);
+        String macaroonBase64 = Base64.getEncoder().encodeToString(serialized);
+
+        // Build L402 Authorization header
+        String preimageHex = HEX.formatHex(preimage);
+        String authHeader = "L402 " + macaroonBase64 + ":" + preimageHex;
+
+        // Present credential and expect 200
+        mockMvc.perform(get(PROTECTED_PATH)
+                        .header("Authorization", authHeader))
+                .andExpect(status().isOk())
+                .andExpect(header().exists("X-L402-Token-Id"))
+                .andExpect(header().string("X-L402-Token-Id", is(HEX.formatHex(tokenId))))
+                .andExpect(header().exists("X-L402-Credential-Expires"))
+                .andExpect(content().string("real-store-content"));
+    }
+
+    @Test
+    @DisplayName("tokenId from GenerationResult matches what getRootKey accepts")
+    void generationResultTokenIdIsConsistentWithGetRootKey() throws Exception {
+        // Generate via the real store
+        RootKeyStore.GenerationResult genResult = rootKeyStore.generateRootKey();
+        byte[] rootKey = genResult.rootKey();
+        byte[] tokenId = genResult.tokenId();
+
+        // Verify the store can look up the key by the returned tokenId
+        byte[] retrieved = rootKeyStore.getRootKey(tokenId);
+        org.assertj.core.api.Assertions.assertThat(retrieved).isEqualTo(rootKey);
     }
 
     // -----------------------------------------------------------------------
@@ -98,24 +161,24 @@ class LsatChallengeSchemeTest {
 
         @Bean
         RootKeyStore rootKeyStore() {
-            return new InMemoryTestRootKeyStore(ROOT_KEY);
+            return new InMemoryRootKeyStore();
         }
 
         @Bean
         CredentialStore credentialStore() {
-            return new InMemoryTestCredentialStore();
+            return new TestCredentialStore();
         }
 
         @Bean
         List<CaveatVerifier> caveatVerifiers() {
-            return List.of();
+            return List.of(new ServicesCaveatVerifier(), new ValidUntilCaveatVerifier(SERVICE_NAME));
         }
 
         @Bean
         L402EndpointRegistry l402EndpointRegistry() {
             var registry = new L402EndpointRegistry();
             registry.register(
-                    new L402EndpointConfig("GET", PROTECTED_PATH, PRICE_SATS, 600, "Scheme test endpoint", "")
+                    new L402EndpointConfig("GET", PROTECTED_PATH, PRICE_SATS, 600, "Real store test endpoint", "")
             );
             return registry;
         }
@@ -134,18 +197,18 @@ class LsatChallengeSchemeTest {
         }
 
         @Bean
-        SchemeTestController schemeTestController() {
-            return new SchemeTestController();
+        RealStoreTestController realStoreTestController() {
+            return new RealStoreTestController();
         }
     }
 
     @RestController
-    static class SchemeTestController {
+    static class RealStoreTestController {
 
-        @L402Protected(priceSats = 10, description = "Scheme test endpoint")
+        @L402Protected(priceSats = 10, description = "Real store test endpoint")
         @GetMapping(PROTECTED_PATH)
         String protectedEndpoint() {
-            return "scheme-test-content";
+            return "real-store-content";
         }
     }
 
@@ -159,7 +222,7 @@ class LsatChallengeSchemeTest {
         Instant now = Instant.now();
         return new Invoice(
                 paymentHash,
-                "lnbc100n1p0testinvoice",
+                "lnbc100n1p0testrealstore",
                 PRICE_SATS,
                 "Test invoice",
                 InvoiceStatus.PENDING,
@@ -167,6 +230,14 @@ class LsatChallengeSchemeTest {
                 now,
                 now.plus(1, ChronoUnit.HOURS)
         );
+    }
+
+    private static byte[] sha256(byte[] input) {
+        try {
+            return MessageDigest.getInstance("SHA-256").digest(input);
+        } catch (Exception e) {
+            throw new AssertionError("SHA-256 not available", e);
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -203,9 +274,6 @@ class LsatChallengeSchemeTest {
 
         @Override
         public Invoice lookupInvoice(byte[] paymentHash) {
-            if (!healthy) {
-                throw new RuntimeException("Lightning backend is not available");
-            }
             return null;
         }
 
@@ -215,33 +283,7 @@ class LsatChallengeSchemeTest {
         }
     }
 
-    static class InMemoryTestRootKeyStore implements RootKeyStore {
-
-        private final byte[] rootKey;
-
-        InMemoryTestRootKeyStore(byte[] rootKey) {
-            this.rootKey = rootKey.clone();
-        }
-
-        @Override
-        public GenerationResult generateRootKey() {
-            byte[] tokenId = new byte[32];
-            new SecureRandom().nextBytes(tokenId);
-            return new GenerationResult(rootKey.clone(), tokenId);
-        }
-
-        @Override
-        public byte[] getRootKey(byte[] keyId) {
-            return rootKey.clone();
-        }
-
-        @Override
-        public void revokeRootKey(byte[] keyId) {
-            // no-op for tests
-        }
-    }
-
-    static class InMemoryTestCredentialStore implements CredentialStore {
+    static class TestCredentialStore implements CredentialStore {
 
         private final Map<String, L402Credential> store = new ConcurrentHashMap<>();
 

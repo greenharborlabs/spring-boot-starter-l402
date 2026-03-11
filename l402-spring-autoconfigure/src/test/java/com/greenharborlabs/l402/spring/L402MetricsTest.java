@@ -595,8 +595,10 @@ class L402MetricsTest {
         }
 
         @Override
-        public byte[] generateRootKey() {
-            return rootKey.clone();
+        public GenerationResult generateRootKey() {
+            byte[] tokenId = new byte[32];
+            new SecureRandom().nextBytes(tokenId);
+            return new GenerationResult(rootKey.clone(), tokenId);
         }
 
         @Override

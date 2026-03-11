@@ -45,10 +45,12 @@ class PreimageValidationTest {
     private final Map<String, byte[]> rootKeyMap = new HashMap<>();
     private final RootKeyStore rootKeyStore = new RootKeyStore() {
         @Override
-        public byte[] generateRootKey() {
+        public GenerationResult generateRootKey() {
             byte[] key = new byte[32];
             RANDOM.nextBytes(key);
-            return key;
+            byte[] tokenId = new byte[32];
+            RANDOM.nextBytes(tokenId);
+            return new GenerationResult(key, tokenId);
         }
 
         @Override

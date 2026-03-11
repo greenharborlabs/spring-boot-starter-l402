@@ -36,24 +36,25 @@ class InMemoryRootKeyStoreTest {
         @Test
         @DisplayName("returns non-null byte array of 32 bytes")
         void returnsThirtyTwoBytes() {
-            byte[] key = store.generateRootKey();
+            RootKeyStore.GenerationResult result = store.generateRootKey();
 
-            assertThat(key).isNotNull().hasSize(KEY_LENGTH);
+            assertThat(result.rootKey()).isNotNull().hasSize(KEY_LENGTH);
         }
 
         @Test
         @DisplayName("successive calls return different keys")
         void successiveCallsReturnDifferentKeys() {
-            byte[] key1 = store.generateRootKey();
-            byte[] key2 = store.generateRootKey();
+            RootKeyStore.GenerationResult result1 = store.generateRootKey();
+            RootKeyStore.GenerationResult result2 = store.generateRootKey();
 
-            assertThat(key1).isNotEqualTo(key2);
+            assertThat(result1.rootKey()).isNotEqualTo(result2.rootKey());
         }
 
         @Test
         @DisplayName("returned key is not all zeros")
         void keyIsNotAllZeros() {
-            byte[] key = store.generateRootKey();
+            RootKeyStore.GenerationResult result = store.generateRootKey();
+            byte[] key = result.rootKey();
 
             boolean allZeros = true;
             for (byte b : key) {
@@ -63,6 +64,14 @@ class InMemoryRootKeyStoreTest {
                 }
             }
             assertThat(allZeros).isFalse();
+        }
+
+        @Test
+        @DisplayName("returns tokenId of 32 bytes")
+        void returnsTokenId() {
+            RootKeyStore.GenerationResult result = store.generateRootKey();
+
+            assertThat(result.tokenId()).isNotNull().hasSize(KEY_LENGTH);
         }
     }
 
@@ -84,12 +93,9 @@ class InMemoryRootKeyStoreTest {
         @Test
         @DisplayName("returns same key bytes that were generated for a given keyId")
         void returnsSameKeyForKnownKeyId() {
-            // Generate a key, then retrieve it using the internally assigned keyId.
-            // The InMemoryRootKeyStore must expose its keyId mapping for this test
-            // to work. The implementation stores hex(tokenId) -> key in a ConcurrentHashMap.
-            // We use getLastGeneratedKeyId() to retrieve the keyId after generation.
-            byte[] key = store.generateRootKey();
-            byte[] keyId = store.getLastGeneratedKeyId();
+            RootKeyStore.GenerationResult result = store.generateRootKey();
+            byte[] key = result.rootKey();
+            byte[] keyId = result.tokenId();
 
             byte[] retrieved = store.getRootKey(keyId);
 
@@ -99,8 +105,8 @@ class InMemoryRootKeyStoreTest {
         @Test
         @DisplayName("returns defensive copy, not internal reference")
         void returnsDefensiveCopy() {
-            byte[] key = store.generateRootKey();
-            byte[] keyId = store.getLastGeneratedKeyId();
+            RootKeyStore.GenerationResult result = store.generateRootKey();
+            byte[] keyId = result.tokenId();
 
             byte[] retrieved1 = store.getRootKey(keyId);
             byte[] retrieved2 = store.getRootKey(keyId);
@@ -120,8 +126,8 @@ class InMemoryRootKeyStoreTest {
         @Test
         @DisplayName("after revocation, getRootKey returns null")
         void revokedKeyReturnsNull() {
-            store.generateRootKey();
-            byte[] keyId = store.getLastGeneratedKeyId();
+            RootKeyStore.GenerationResult result = store.generateRootKey();
+            byte[] keyId = result.tokenId();
 
             store.revokeRootKey(keyId);
 
@@ -141,11 +147,13 @@ class InMemoryRootKeyStoreTest {
         @Test
         @DisplayName("revocation does not affect other keys")
         void revocationDoesNotAffectOtherKeys() {
-            byte[] key1 = store.generateRootKey();
-            byte[] keyId1 = store.getLastGeneratedKeyId();
+            RootKeyStore.GenerationResult result1 = store.generateRootKey();
+            byte[] key1 = result1.rootKey();
+            byte[] keyId1 = result1.tokenId();
 
-            byte[] key2 = store.generateRootKey();
-            byte[] keyId2 = store.getLastGeneratedKeyId();
+            RootKeyStore.GenerationResult result2 = store.generateRootKey();
+            byte[] key2 = result2.rootKey();
+            byte[] keyId2 = result2.tokenId();
 
             store.revokeRootKey(keyId1);
 
@@ -169,8 +177,8 @@ class InMemoryRootKeyStoreTest {
             for (int i = 0; i < threadCount; i++) {
                 executor.submit(() -> {
                     try {
-                        byte[] key = store.generateRootKey();
-                        hexKeys.add(HEX.formatHex(key));
+                        RootKeyStore.GenerationResult result = store.generateRootKey();
+                        hexKeys.add(HEX.formatHex(result.rootKey()));
                     } finally {
                         latch.countDown();
                     }
