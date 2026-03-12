@@ -14,6 +14,7 @@ import com.greenharborlabs.l402.core.protocol.ErrorCode;
 import com.greenharborlabs.l402.core.protocol.L402Credential;
 import com.greenharborlabs.l402.core.protocol.L402Exception;
 import com.greenharborlabs.l402.core.protocol.L402Validator;
+import com.greenharborlabs.l402.core.util.JsonEscaper;
 
 import jakarta.servlet.Filter;
 import jakarta.servlet.FilterChain;
@@ -60,6 +61,7 @@ public class L402SecurityFilter implements Filter {
     private final String serviceName;
     private volatile L402Metrics metrics;
     private volatile L402EarningsTracker earningsTracker;
+    private volatile L402RateLimiter rateLimiter;
 
     /**
      * Primary constructor accepting a pre-built L402Validator (used by auto-configuration).
@@ -127,6 +129,14 @@ public class L402SecurityFilter implements Filter {
         this.earningsTracker = earningsTracker;
     }
 
+    /**
+     * Sets the optional rate limiter. When non-null, the filter will check
+     * rate limits before issuing 402 challenges to prevent invoice flooding.
+     */
+    public void setRateLimiter(L402RateLimiter rateLimiter) {
+        this.rateLimiter = rateLimiter;
+    }
+
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
             throws IOException, ServletException {
@@ -158,6 +168,12 @@ public class L402SecurityFilter implements Filter {
         String authHeader = httpRequest.getHeader(AUTHORIZATION_HEADER);
         if (authHeader == null || authHeader.isEmpty()
                 || (!authHeader.startsWith(L402_PREFIX) && !authHeader.startsWith(LSAT_PREFIX))) {
+            // Check rate limit before creating invoice to prevent flooding
+            L402RateLimiter limiter = this.rateLimiter;
+            if (limiter != null && !limiter.tryAcquire(resolveClientIp(httpRequest))) {
+                writeRateLimitedResponse(httpResponse);
+                return;
+            }
             try {
                 writePaymentRequiredResponse(httpRequest, httpResponse, config);
                 recordChallenge(path);
@@ -187,6 +203,12 @@ public class L402SecurityFilter implements Filter {
             ErrorCode errorCode = e.getErrorCode();
             log.log(System.Logger.Level.WARNING, "L402 validation failed, errorCode={0}, tokenId={1}", errorCode, e.getTokenId());
             if (errorCode == ErrorCode.MALFORMED_HEADER) {
+                // Check rate limit before creating invoice to prevent flooding
+                L402RateLimiter limiter = this.rateLimiter;
+                if (limiter != null && !limiter.tryAcquire(resolveClientIp(httpRequest))) {
+                    writeRateLimitedResponse(httpResponse);
+                    return;
+                }
                 // Malformed L402 header: issue a new challenge
                 try {
                     writePaymentRequiredResponse(httpRequest, httpResponse, config);
@@ -254,7 +276,7 @@ public class L402SecurityFilter implements Filter {
         response.setContentType("application/json");
         response.getWriter().write("""
                 {"code": 402, "message": "Payment required", "price_sats": %d, "description": "%s", "invoice": "%s"}"""
-                .formatted(effectivePrice, escapeJson(config.description()), invoice.bolt11()));
+                .formatted(effectivePrice, JsonEscaper.escape(config.description()), invoice.bolt11()));
     }
 
     /**
@@ -288,7 +310,15 @@ public class L402SecurityFilter implements Filter {
         response.getWriter().write("""
                 {"code": %d, "error": "%s", "message": "%s", "details": {"token_id": "%s"}}"""
                 .formatted(errorCode.getHttpStatus(), errorCode.name(),
-                        escapeJson(message), escapeJson(tokenDetail)));
+                        JsonEscaper.escape(message), JsonEscaper.escape(tokenDetail)));
+    }
+
+    private void writeRateLimitedResponse(HttpServletResponse response) throws IOException {
+        response.setStatus(429);
+        response.setHeader("Retry-After", "1");
+        response.setContentType("application/json");
+        response.getWriter().write("""
+                {"code": 429, "error": "RATE_LIMITED", "message": "Too many payment challenge requests. Please try again later."}""");
     }
 
     private void writeLightningUnavailableResponse(HttpServletResponse response) throws IOException {
@@ -327,14 +357,21 @@ public class L402SecurityFilter implements Filter {
         }
     }
 
-    private static String escapeJson(String value) {
-        if (value == null) {
-            return "";
+    /**
+     * Extracts the client IP address, preferring the first entry in the
+     * X-Forwarded-For header (set by reverse proxies) over getRemoteAddr().
+     */
+    private static String resolveClientIp(HttpServletRequest request) {
+        String xff = request.getHeader("X-Forwarded-For");
+        if (xff != null && !xff.isBlank()) {
+            // X-Forwarded-For: client, proxy1, proxy2 — take leftmost
+            int comma = xff.indexOf(',');
+            String ip = (comma > 0 ? xff.substring(0, comma) : xff).strip();
+            if (!ip.isEmpty()) {
+                return ip;
+            }
         }
-        return value.replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r")
-                .replace("\t", "\\t");
+        return request.getRemoteAddr();
     }
+
 }

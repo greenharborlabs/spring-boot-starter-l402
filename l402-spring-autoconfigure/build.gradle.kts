@@ -13,6 +13,7 @@ dependencies {
     compileOnly("com.github.ben-manes.caffeine:caffeine:$caffeineVersion")
     compileOnly("io.micrometer:micrometer-core")
     compileOnly("org.springframework.boot:spring-boot-actuator-autoconfigure")
+    compileOnly("org.springframework.boot:spring-boot-health")
 
     // Lightning backend modules — optional; consumers bring the one they need
     compileOnly(project(":l402-lightning-lnbits"))

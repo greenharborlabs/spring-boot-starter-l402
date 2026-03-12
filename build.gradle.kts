@@ -82,4 +82,72 @@ subprojects {
     extra["jacksonVersion"] = jacksonVersion
     extra["assertjVersion"] = assertjVersion
     extra["mockWebServerVersion"] = mockWebServerVersion
+
+    // Publishing configuration (skip example app)
+    if (project.name != "l402-example-app") {
+        apply(plugin = "maven-publish")
+        apply(plugin = "signing")
+
+        val javaExt = the<JavaPluginExtension>()
+        javaExt.withSourcesJar()
+        javaExt.withJavadocJar()
+
+        afterEvaluate {
+            configure<PublishingExtension> {
+                publications {
+                    create<MavenPublication>("mavenJava") {
+                        from(components["java"])
+
+                        pom {
+                            name.set(project.name)
+                            description.set("L402 protocol implementation for Spring Boot - ${project.name}")
+                            url.set("https://github.com/greenharborlabs/spring-boot-starter-l402")
+                            licenses {
+                                license {
+                                    name.set("MIT License")
+                                    url.set("https://opensource.org/licenses/MIT")
+                                }
+                            }
+                            developers {
+                                developer {
+                                    id.set("greenharborlabs")
+                                    name.set("Green Harbor Labs")
+                                    url.set("https://github.com/greenharborlabs")
+                                }
+                            }
+                            scm {
+                                connection.set("scm:git:git://github.com/greenharborlabs/spring-boot-starter-l402.git")
+                                developerConnection.set("scm:git:ssh://github.com/greenharborlabs/spring-boot-starter-l402.git")
+                                url.set("https://github.com/greenharborlabs/spring-boot-starter-l402")
+                            }
+                        }
+                    }
+                }
+                repositories {
+                    maven {
+                        name = "sonatype"
+                        val releasesUrl = "https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/"
+                        val snapshotsUrl = "https://s01.oss.sonatype.org/content/repositories/snapshots/"
+                        url = uri(if (version.toString().endsWith("SNAPSHOT")) snapshotsUrl else releasesUrl)
+                        credentials {
+                            username = findProperty("sonatypeUsername") as String? ?: System.getenv("SONATYPE_USERNAME") ?: ""
+                            password = findProperty("sonatypePassword") as String? ?: System.getenv("SONATYPE_PASSWORD") ?: ""
+                        }
+                    }
+                }
+            }
+
+            configure<SigningExtension> {
+                val signingKey = findProperty("signingKey") as String? ?: System.getenv("GPG_SIGNING_KEY")
+                val signingPassword = findProperty("signingPassword") as String? ?: System.getenv("GPG_SIGNING_PASSWORD")
+                isRequired = !version.toString().endsWith("SNAPSHOT")
+                if (signingKey != null && signingPassword != null) {
+                    useInMemoryPgpKeys(signingKey, signingPassword)
+                    sign(the<PublishingExtension>().publications["mavenJava"])
+                } else if (isRequired) {
+                    throw GradleException("GPG signing keys are required for release builds but not configured")
+                }
+            }
+        }
+    }
 }
