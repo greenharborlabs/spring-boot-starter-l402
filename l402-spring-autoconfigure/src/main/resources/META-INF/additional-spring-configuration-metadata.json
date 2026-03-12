@@ -59,6 +59,12 @@
       "defaultValue": false
     },
     {
+      "name": "l402.trust-forwarded-headers",
+      "type": "java.lang.Boolean",
+      "description": "Whether to trust X-Forwarded-For headers for client IP resolution. When false (default), the filter always uses the direct connection remote address, preventing rate-limit bypass via header spoofing. Enable only when running behind a trusted reverse proxy.",
+      "defaultValue": false
+    },
+    {
       "name": "l402.lnbits.url",
       "type": "java.lang.String",
       "description": "Base URL of the LNbits instance (e.g., https://lnbits.example.com). Required when l402.backend=lnbits."

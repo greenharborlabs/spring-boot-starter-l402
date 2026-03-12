@@ -121,7 +121,7 @@ public class L402AutoConfiguration {
                                                   @Autowired(required = false) L402Metrics l402Metrics,
                                                   L402EarningsTracker l402EarningsTracker) {
         var filter = new L402SecurityFilter(registry, lightningBackend, rootKeyStore,
-                l402Validator, applicationContext, properties.getServiceName());
+                l402Validator, applicationContext, properties.getServiceName(), properties);
         if (l402Metrics != null) {
             filter.setMetrics(l402Metrics);
         }

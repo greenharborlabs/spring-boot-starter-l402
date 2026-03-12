@@ -485,6 +485,39 @@ class L402SecurityFilterTest {
         }
     }
 
+    @Nested
+    @DisplayName("X-Forwarded-For header trust")
+    class ForwardedHeaderTrust {
+
+        @Test
+        @DisplayName("trustForwardedHeaders defaults to false in L402Properties")
+        void trustForwardedHeadersDefaultsToFalse() {
+            var props = new L402Properties();
+            assertThat(props.isTrustForwardedHeaders()).isFalse();
+        }
+
+        @Test
+        @DisplayName("trustForwardedHeaders can be set to true via setter")
+        void trustForwardedHeadersCanBeSetToTrue() {
+            var props = new L402Properties();
+            props.setTrustForwardedHeaders(true);
+            assertThat(props.isTrustForwardedHeaders()).isTrue();
+        }
+
+        @Test
+        @DisplayName("filter created without properties ignores XFF (backward compat)")
+        void filterWithoutPropertiesIgnoresXff() throws Exception {
+            // The test app uses the backward-compatible constructor (no properties),
+            // so XFF should be ignored. Requests with XFF should still work normally.
+            ((StubLightningBackend) lightningBackend).setHealthy(true);
+            ((StubLightningBackend) lightningBackend).setNextInvoice(createStubInvoice());
+
+            mockMvc.perform(get(PROTECTED_PATH)
+                            .header("X-Forwarded-For", "10.0.0.1"))
+                    .andExpect(status().isPaymentRequired());
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Test helpers
     // -----------------------------------------------------------------------

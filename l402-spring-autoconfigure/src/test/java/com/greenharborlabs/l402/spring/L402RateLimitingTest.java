@@ -123,6 +123,94 @@ class L402RateLimitingTest {
     }
 
     // -----------------------------------------------------------------------
+    // Test: XFF ignored when trustForwardedHeaders=false (default)
+    // -----------------------------------------------------------------------
+
+    @Nested
+    @SpringBootTest(classes = RateLimitWithXffUntrustedApp.class)
+    @AutoConfigureMockMvc
+    @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
+    @DisplayName("with XFF untrusted (default)")
+    class XffUntrusted {
+
+        @Autowired
+        private MockMvc mockMvc;
+
+        @Autowired
+        private LightningBackend lightningBackend;
+
+        @BeforeEach
+        void setUp() {
+            ((StubLightningBackend) lightningBackend).setHealthy(true);
+            ((StubLightningBackend) lightningBackend).setNextInvoice(createStubInvoice());
+        }
+
+        @Test
+        @DisplayName("XFF header is ignored; different XFF values share the same rate limit bucket")
+        void xffIgnoredSharesSameRateLimitBucket() throws Exception {
+            // Exhaust the rate limit using different XFF headers.
+            // If XFF were trusted, each would get its own bucket and none would be rate-limited.
+            for (int i = 0; i < MAX_TOKENS; i++) {
+                mockMvc.perform(get(PROTECTED_PATH)
+                                .header("X-Forwarded-For", "10.0.0." + i))
+                        .andExpect(status().isPaymentRequired());
+            }
+
+            // Next request (even with a new XFF) should be rate-limited because
+            // all requests resolved to the same remoteAddr (127.0.0.1)
+            mockMvc.perform(get(PROTECTED_PATH)
+                            .header("X-Forwarded-For", "10.0.0.99"))
+                    .andExpect(status().is(429))
+                    .andExpect(jsonPath("$.error", is("RATE_LIMITED")));
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Test: XFF used when trustForwardedHeaders=true
+    // -----------------------------------------------------------------------
+
+    @Nested
+    @SpringBootTest(classes = RateLimitWithXffTrustedApp.class)
+    @AutoConfigureMockMvc
+    @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
+    @DisplayName("with XFF trusted")
+    class XffTrusted {
+
+        @Autowired
+        private MockMvc mockMvc;
+
+        @Autowired
+        private LightningBackend lightningBackend;
+
+        @BeforeEach
+        void setUp() {
+            ((StubLightningBackend) lightningBackend).setHealthy(true);
+            ((StubLightningBackend) lightningBackend).setNextInvoice(createStubInvoice());
+        }
+
+        @Test
+        @DisplayName("XFF header is used; different XFF values get separate rate limit buckets")
+        void xffTrustedSeparateRateLimitBuckets() throws Exception {
+            // Exhaust the rate limit for IP 10.0.0.1
+            for (int i = 0; i < MAX_TOKENS; i++) {
+                mockMvc.perform(get(PROTECTED_PATH)
+                                .header("X-Forwarded-For", "10.0.0.1"))
+                        .andExpect(status().isPaymentRequired());
+            }
+
+            // 10.0.0.1 should now be rate-limited
+            mockMvc.perform(get(PROTECTED_PATH)
+                            .header("X-Forwarded-For", "10.0.0.1"))
+                    .andExpect(status().is(429));
+
+            // But 10.0.0.2 should still get 402 (separate bucket via XFF)
+            mockMvc.perform(get(PROTECTED_PATH)
+                            .header("X-Forwarded-For", "10.0.0.2"))
+                    .andExpect(status().isPaymentRequired());
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Test: rate limiter can be disabled via property
     // -----------------------------------------------------------------------
 
@@ -288,6 +376,157 @@ class L402RateLimitingTest {
                     endpointRegistry, lightningBackendBean, rootKeyStore, credentialStore, caveatVerifiers, SERVICE_NAME
             );
             filter.setEarningsTracker(l402EarningsTracker);
+            return filter;
+        }
+
+        @Bean
+        TestController testController() {
+            return new TestController();
+        }
+    }
+
+    @Configuration
+    @EnableAutoConfiguration
+    static class RateLimitWithXffUntrustedApp {
+
+        @Bean
+        L402Properties l402Properties() {
+            // trustForwardedHeaders defaults to false
+            return new L402Properties();
+        }
+
+        @Bean
+        LightningBackend lightningBackend() {
+            return new StubLightningBackend();
+        }
+
+        @Bean
+        RootKeyStore rootKeyStore() {
+            return new InMemoryTestRootKeyStore(ROOT_KEY);
+        }
+
+        @Bean
+        CredentialStore credentialStore() {
+            return new InMemoryTestCredentialStore();
+        }
+
+        @Bean
+        List<CaveatVerifier> caveatVerifiers() {
+            return List.of(new ServicesCaveatVerifier(), new ValidUntilCaveatVerifier(SERVICE_NAME));
+        }
+
+        @Bean
+        L402EndpointRegistry l402EndpointRegistry() {
+            var registry = new L402EndpointRegistry();
+            registry.register(
+                    new L402EndpointConfig("GET", PROTECTED_PATH, 10, TIMEOUT_SECONDS, "Rate limited endpoint", "")
+            );
+            return registry;
+        }
+
+        @Bean
+        L402EarningsTracker l402EarningsTracker() {
+            return new L402EarningsTracker();
+        }
+
+        @Bean
+        L402RateLimiter l402RateLimiter() {
+            return new TokenBucketRateLimiter(MAX_TOKENS, 0.001);
+        }
+
+        @Bean
+        L402SecurityFilter l402SecurityFilter(
+                L402EndpointRegistry endpointRegistry,
+                LightningBackend lightningBackendBean,
+                RootKeyStore rootKeyStore,
+                CredentialStore credentialStore,
+                List<CaveatVerifier> caveatVerifiers,
+                L402EarningsTracker l402EarningsTracker,
+                L402RateLimiter l402RateLimiter,
+                L402Properties l402Properties
+        ) {
+            var filter = new L402SecurityFilter(
+                    endpointRegistry, lightningBackendBean, rootKeyStore, credentialStore,
+                    caveatVerifiers, SERVICE_NAME, null, l402Properties
+            );
+            filter.setEarningsTracker(l402EarningsTracker);
+            filter.setRateLimiter(l402RateLimiter);
+            return filter;
+        }
+
+        @Bean
+        TestController testController() {
+            return new TestController();
+        }
+    }
+
+    @Configuration
+    @EnableAutoConfiguration
+    static class RateLimitWithXffTrustedApp {
+
+        @Bean
+        L402Properties l402Properties() {
+            var props = new L402Properties();
+            props.setTrustForwardedHeaders(true);
+            return props;
+        }
+
+        @Bean
+        LightningBackend lightningBackend() {
+            return new StubLightningBackend();
+        }
+
+        @Bean
+        RootKeyStore rootKeyStore() {
+            return new InMemoryTestRootKeyStore(ROOT_KEY);
+        }
+
+        @Bean
+        CredentialStore credentialStore() {
+            return new InMemoryTestCredentialStore();
+        }
+
+        @Bean
+        List<CaveatVerifier> caveatVerifiers() {
+            return List.of(new ServicesCaveatVerifier(), new ValidUntilCaveatVerifier(SERVICE_NAME));
+        }
+
+        @Bean
+        L402EndpointRegistry l402EndpointRegistry() {
+            var registry = new L402EndpointRegistry();
+            registry.register(
+                    new L402EndpointConfig("GET", PROTECTED_PATH, 10, TIMEOUT_SECONDS, "Rate limited endpoint", "")
+            );
+            return registry;
+        }
+
+        @Bean
+        L402EarningsTracker l402EarningsTracker() {
+            return new L402EarningsTracker();
+        }
+
+        @Bean
+        L402RateLimiter l402RateLimiter() {
+            return new TokenBucketRateLimiter(MAX_TOKENS, 0.001);
+        }
+
+        @Bean
+        L402SecurityFilter l402SecurityFilter(
+                L402EndpointRegistry endpointRegistry,
+                LightningBackend lightningBackendBean,
+                RootKeyStore rootKeyStore,
+                CredentialStore credentialStore,
+                List<CaveatVerifier> caveatVerifiers,
+                L402EarningsTracker l402EarningsTracker,
+                L402RateLimiter l402RateLimiter,
+                L402Properties l402Properties
+        ) {
+            var filter = new L402SecurityFilter(
+                    endpointRegistry, lightningBackendBean, rootKeyStore, credentialStore,
+                    caveatVerifiers, SERVICE_NAME, null, l402Properties
+            );
+            filter.setEarningsTracker(l402EarningsTracker);
+            filter.setRateLimiter(l402RateLimiter);
             return filter;
         }
 

@@ -30,6 +30,8 @@ public class L402Properties {
 
     private boolean testMode = false;
 
+    private boolean trustForwardedHeaders = false;
+
     private HealthCache healthCache = new HealthCache();
 
     private Lnbits lnbits = new Lnbits();
@@ -138,6 +140,14 @@ public class L402Properties {
 
     public void setTestMode(boolean testMode) {
         this.testMode = testMode;
+    }
+
+    public boolean isTrustForwardedHeaders() {
+        return trustForwardedHeaders;
+    }
+
+    public void setTrustForwardedHeaders(boolean trustForwardedHeaders) {
+        this.trustForwardedHeaders = trustForwardedHeaders;
     }
 
     /**

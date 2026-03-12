@@ -1,8 +1,10 @@
 package com.greenharborlabs.l402.core.protocol;
 
 import com.greenharborlabs.l402.core.credential.CredentialStore;
+import com.greenharborlabs.l402.core.macaroon.Caveat;
 import com.greenharborlabs.l402.core.macaroon.CaveatVerifier;
 import com.greenharborlabs.l402.core.macaroon.L402VerificationContext;
+import com.greenharborlabs.l402.core.macaroon.Macaroon;
 import com.greenharborlabs.l402.core.macaroon.MacaroonIdentifier;
 import com.greenharborlabs.l402.core.macaroon.MacaroonVerificationException;
 import com.greenharborlabs.l402.core.macaroon.MacaroonVerifier;
@@ -63,9 +65,10 @@ public final class L402Validator {
         }
 
         // 5. Verify macaroon signature (caveat verification happens inside)
+        Instant now = Instant.now();
         L402VerificationContext context = L402VerificationContext.builder()
                 .serviceName(serviceName)
-                .currentTime(Instant.now())
+                .currentTime(now)
                 .build();
         try {
             MacaroonVerifier.verify(credential.macaroon(), rootKey, caveatVerifiers, context);
@@ -89,9 +92,43 @@ public final class L402Validator {
                     "Preimage does not match payment hash", tokenId);
         }
 
-        // 7. Cache the credential
-        credentialStore.store(tokenId, credential, DEFAULT_TTL_SECONDS);
+        // 7. Cache the credential with TTL derived from valid_until caveats
+        long cacheTtl = extractCacheTtl(credential.macaroon(), DEFAULT_TTL_SECONDS, now);
+        credentialStore.store(tokenId, credential, cacheTtl);
 
         return credential;
+    }
+
+    /**
+     * Derives cache TTL from {@code valid_until} caveats on the macaroon.
+     * If one or more {@code {serviceName}_valid_until} caveats are present, the TTL is
+     * the minimum remaining time until any of them expire, capped by {@code defaultTtlSeconds}.
+     * Returns {@code defaultTtlSeconds} if no matching caveat is found.
+     */
+    private long extractCacheTtl(Macaroon macaroon, long defaultTtlSeconds, Instant now) {
+        String validUntilKey = serviceName + "_valid_until";
+        long nowEpoch = now.getEpochSecond();
+        long minRemaining = defaultTtlSeconds;
+        boolean found = false;
+
+        for (Caveat caveat : macaroon.caveats()) {
+            if (validUntilKey.equals(caveat.key())) {
+                try {
+                    long expiryEpoch = Long.parseLong(caveat.value());
+                    long remaining = expiryEpoch - nowEpoch;
+                    // Floor at 1 second — the caveat verifier already rejected expired tokens,
+                    // so remaining should be positive, but guard against clock skew.
+                    remaining = Math.max(remaining, 1L);
+                    if (!found || remaining < minRemaining) {
+                        minRemaining = remaining;
+                    }
+                    found = true;
+                } catch (NumberFormatException _) {
+                    // Malformed value — skip, caveat verifier is responsible for enforcement
+                }
+            }
+        }
+
+        return Math.min(minRemaining, defaultTtlSeconds);
     }
 }

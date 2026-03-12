@@ -59,12 +59,32 @@ public class L402SecurityFilter implements Filter {
     private final L402Validator validator;
     private final ApplicationContext applicationContext;
     private final String serviceName;
+    private final L402Properties properties;
     private volatile L402Metrics metrics;
     private volatile L402EarningsTracker earningsTracker;
     private volatile L402RateLimiter rateLimiter;
 
     /**
-     * Primary constructor accepting a pre-built L402Validator (used by auto-configuration).
+     * Primary constructor accepting a pre-built L402Validator and properties (used by auto-configuration).
+     */
+    public L402SecurityFilter(L402EndpointRegistry registry,
+                              LightningBackend lightningBackend,
+                              RootKeyStore rootKeyStore,
+                              L402Validator validator,
+                              ApplicationContext applicationContext,
+                              String serviceName,
+                              L402Properties properties) {
+        this.registry = Objects.requireNonNull(registry, "registry must not be null");
+        this.lightningBackend = Objects.requireNonNull(lightningBackend, "lightningBackend must not be null");
+        this.rootKeyStore = Objects.requireNonNull(rootKeyStore, "rootKeyStore must not be null");
+        this.validator = Objects.requireNonNull(validator, "validator must not be null");
+        this.applicationContext = applicationContext;
+        this.serviceName = (serviceName == null || serviceName.isBlank()) ? "default" : serviceName;
+        this.properties = properties;
+    }
+
+    /**
+     * Backward-compatible primary constructor without properties parameter.
      */
     public L402SecurityFilter(L402EndpointRegistry registry,
                               LightningBackend lightningBackend,
@@ -72,12 +92,7 @@ public class L402SecurityFilter implements Filter {
                               L402Validator validator,
                               ApplicationContext applicationContext,
                               String serviceName) {
-        this.registry = Objects.requireNonNull(registry, "registry must not be null");
-        this.lightningBackend = Objects.requireNonNull(lightningBackend, "lightningBackend must not be null");
-        this.rootKeyStore = Objects.requireNonNull(rootKeyStore, "rootKeyStore must not be null");
-        this.validator = Objects.requireNonNull(validator, "validator must not be null");
-        this.applicationContext = applicationContext;
-        this.serviceName = (serviceName == null || serviceName.isBlank()) ? "default" : serviceName;
+        this(registry, lightningBackend, rootKeyStore, validator, applicationContext, serviceName, null);
     }
 
     /**
@@ -103,6 +118,22 @@ public class L402SecurityFilter implements Filter {
                               List<CaveatVerifier> caveatVerifiers,
                               String serviceName,
                               ApplicationContext applicationContext) {
+        this(registry, lightningBackend, rootKeyStore, credentialStore,
+                caveatVerifiers, serviceName, applicationContext, null);
+    }
+
+    /**
+     * Backward-compatible constructor that creates the L402Validator internally,
+     * with optional L402Properties for forwarded header trust configuration.
+     */
+    public L402SecurityFilter(L402EndpointRegistry registry,
+                              LightningBackend lightningBackend,
+                              RootKeyStore rootKeyStore,
+                              CredentialStore credentialStore,
+                              List<CaveatVerifier> caveatVerifiers,
+                              String serviceName,
+                              ApplicationContext applicationContext,
+                              L402Properties properties) {
         this(registry, lightningBackend, rootKeyStore,
                 new L402Validator(
                         Objects.requireNonNull(rootKeyStore, "rootKeyStore must not be null"),
@@ -110,7 +141,8 @@ public class L402SecurityFilter implements Filter {
                         Objects.requireNonNull(caveatVerifiers, "caveatVerifiers must not be null"),
                         (serviceName == null || serviceName.isBlank()) ? "default" : serviceName),
                 applicationContext,
-                serviceName);
+                serviceName,
+                properties);
     }
 
     /**
@@ -358,17 +390,20 @@ public class L402SecurityFilter implements Filter {
     }
 
     /**
-     * Extracts the client IP address, preferring the first entry in the
-     * X-Forwarded-For header (set by reverse proxies) over getRemoteAddr().
+     * Extracts the client IP address. Only reads the X-Forwarded-For header
+     * when {@code trustForwardedHeaders} is explicitly enabled in properties,
+     * to prevent rate-limit bypass via header spoofing.
      */
-    private static String resolveClientIp(HttpServletRequest request) {
-        String xff = request.getHeader("X-Forwarded-For");
-        if (xff != null && !xff.isBlank()) {
-            // X-Forwarded-For: client, proxy1, proxy2 — take leftmost
-            int comma = xff.indexOf(',');
-            String ip = (comma > 0 ? xff.substring(0, comma) : xff).strip();
-            if (!ip.isEmpty()) {
-                return ip;
+    private String resolveClientIp(HttpServletRequest request) {
+        if (this.properties != null && this.properties.isTrustForwardedHeaders()) {
+            String xff = request.getHeader("X-Forwarded-For");
+            if (xff != null && !xff.isBlank()) {
+                // X-Forwarded-For: client, proxy1, proxy2 — take leftmost
+                int comma = xff.indexOf(',');
+                String ip = (comma > 0 ? xff.substring(0, comma) : xff).strip();
+                if (!ip.isEmpty()) {
+                    return ip;
+                }
             }
         }
         return request.getRemoteAddr();

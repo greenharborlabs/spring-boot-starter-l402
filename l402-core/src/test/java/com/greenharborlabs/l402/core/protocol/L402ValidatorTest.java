@@ -24,6 +24,7 @@ import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -282,5 +283,138 @@ class L402ValidatorTest {
                     .extracting(e -> ((L402Exception) e).getErrorCode())
                     .isEqualTo(ErrorCode.EXPIRED_CREDENTIAL);
         }
+    }
+
+    @Nested
+    @DisplayName("cache TTL derived from valid_until caveat")
+    class CacheTtlFromValidUntil {
+
+        @Test
+        @DisplayName("uses remaining seconds from valid_until caveat as cache TTL when shorter than default")
+        void shortValidUntilGetsShorterCacheTtl() {
+            AtomicLong capturedTtl = new AtomicLong(-1);
+            CredentialStore ttlCapturingStore = ttlCapturingStore(capturedTtl);
+
+            // Macaroon with valid_until set to 120 seconds from now
+            long futureEpoch = Instant.now().plusSeconds(120).getEpochSecond();
+            List<Caveat> caveats = List.of(
+                    new Caveat(SERVICE_NAME + "_valid_until", String.valueOf(futureEpoch))
+            );
+
+            String header = buildAuthHeader(caveats);
+
+            L402Validator validator = new L402Validator(
+                    rootKeyStore, ttlCapturingStore, List.of(validUntilVerifier()), SERVICE_NAME);
+
+            validator.validate(header);
+
+            // TTL should be approximately 120 seconds, definitely not the default 3600.
+            // Allow a few seconds of tolerance for test execution time.
+            assertThat(capturedTtl.get())
+                    .isGreaterThan(0)
+                    .isLessThanOrEqualTo(120)
+                    .isGreaterThanOrEqualTo(115);
+        }
+
+        @Test
+        @DisplayName("uses default TTL when no valid_until caveat is present")
+        void noValidUntilUsesDefaultTtl() {
+            AtomicLong capturedTtl = new AtomicLong(-1);
+            CredentialStore ttlCapturingStore = ttlCapturingStore(capturedTtl);
+
+            L402Validator validator = new L402Validator(
+                    rootKeyStore, ttlCapturingStore, List.of(), SERVICE_NAME);
+
+            validator.validate(validAuthHeader);
+
+            assertThat(capturedTtl.get()).isEqualTo(3600);
+        }
+
+        @Test
+        @DisplayName("uses minimum of multiple valid_until caveats as cache TTL")
+        void multipleValidUntilUsesMinimum() {
+            AtomicLong capturedTtl = new AtomicLong(-1);
+            CredentialStore ttlCapturingStore = ttlCapturingStore(capturedTtl);
+
+            // Two valid_until caveats: 120s and 60s from now — TTL should be ~60s
+            long laterEpoch = Instant.now().plusSeconds(120).getEpochSecond();
+            long soonerEpoch = Instant.now().plusSeconds(60).getEpochSecond();
+            List<Caveat> caveats = List.of(
+                    new Caveat(SERVICE_NAME + "_valid_until", String.valueOf(laterEpoch)),
+                    new Caveat(SERVICE_NAME + "_valid_until", String.valueOf(soonerEpoch))
+            );
+
+            String header = buildAuthHeader(caveats);
+
+            L402Validator validator = new L402Validator(
+                    rootKeyStore, ttlCapturingStore, List.of(validUntilVerifier()), SERVICE_NAME);
+
+            validator.validate(header);
+
+            // TTL should be approximately 60 seconds (the minimum), not 120 or the default 3600.
+            assertThat(capturedTtl.get())
+                    .isGreaterThan(0)
+                    .isLessThanOrEqualTo(60)
+                    .isGreaterThanOrEqualTo(55);
+        }
+    }
+
+    /** Creates a CredentialStore that captures the TTL passed to store(). */
+    private CredentialStore ttlCapturingStore(AtomicLong capturedTtl) {
+        return new CredentialStore() {
+            private final Map<String, L402Credential> map = new HashMap<>();
+
+            @Override
+            public void store(String tokenId, L402Credential credential, long ttlSeconds) {
+                capturedTtl.set(ttlSeconds);
+                map.put(tokenId, credential);
+            }
+
+            @Override
+            public L402Credential get(String tokenId) {
+                return map.get(tokenId);
+            }
+
+            @Override
+            public void revoke(String tokenId) {
+                map.remove(tokenId);
+            }
+
+            @Override
+            public long activeCount() {
+                return map.size();
+            }
+        };
+    }
+
+    /** Creates a CaveatVerifier for valid_until caveats that rejects expired timestamps. */
+    private CaveatVerifier validUntilVerifier() {
+        return new CaveatVerifier() {
+            @Override
+            public String getKey() {
+                return SERVICE_NAME + "_valid_until";
+            }
+
+            @Override
+            public void verify(Caveat caveat, L402VerificationContext context) {
+                long expiryEpoch = Long.parseLong(caveat.value());
+                Instant expiry = Instant.ofEpochSecond(expiryEpoch);
+                if (!expiry.isAfter(context.getCurrentTime())) {
+                    throw new L402Exception(
+                            ErrorCode.EXPIRED_CREDENTIAL,
+                            "Credential expired at " + expiry,
+                            null);
+                }
+            }
+        };
+    }
+
+    /** Builds an L402 Authorization header from a macaroon minted with the given caveats. */
+    private String buildAuthHeader(List<Caveat> caveats) {
+        Macaroon mac = MacaroonMinter.mint(rootKey, identifier, "https://example.com", caveats);
+        byte[] serialized = MacaroonSerializer.serializeV2(mac);
+        String macaroonBase64 = Base64.getEncoder().encodeToString(serialized);
+        String preimageHex = HEX.formatHex(preimageBytes);
+        return "L402 " + macaroonBase64 + ":" + preimageHex;
     }
 }
