@@ -5,6 +5,7 @@ include(
     "l402-lightning-lnd",
     "l402-lightning-lnbits",
     "l402-spring-autoconfigure",
+    "l402-spring-security",
     "l402-spring-boot-starter",
     "l402-example-app",
 )

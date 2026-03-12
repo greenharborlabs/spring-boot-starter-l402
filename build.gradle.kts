@@ -44,6 +44,14 @@ subprojects {
         "testRuntimeOnly"("org.junit.platform:junit-platform-launcher")
     }
 
+    tasks.withType<Javadoc> {
+        options.encoding = "UTF-8"
+        (options as StandardJavadocDocletOptions).apply {
+            addStringOption("Xdoclint:none", "-quiet")
+            charSet = "UTF-8"
+        }
+    }
+
     tasks.withType<Test> {
         useJUnitPlatform()
         finalizedBy(tasks.named("jacocoTestReport"))
@@ -149,5 +157,28 @@ subprojects {
                 }
             }
         }
+    }
+}
+
+// Aggregate Javadoc task: collects sources from all subprojects with Java sources
+tasks.register<Javadoc>("aggregateJavadoc") {
+    group = "documentation"
+    description = "Generates aggregate Javadoc for all modules."
+
+    val javadocSubprojects = subprojects.filter { sub ->
+        sub.plugins.hasPlugin("java-library") && sub.name != "l402-spring-boot-starter" && sub.name != "l402-example-app"
+    }
+
+    dependsOn(javadocSubprojects.map { it.tasks.named("classes") })
+
+    source(javadocSubprojects.map { it.the<SourceSetContainer>()["main"].allJava })
+    classpath = files(javadocSubprojects.map { it.the<SourceSetContainer>()["main"].compileClasspath })
+
+    setDestinationDir(layout.buildDirectory.dir("docs/javadoc").get().asFile)
+
+    options.encoding = "UTF-8"
+    (options as StandardJavadocDocletOptions).apply {
+        addStringOption("Xdoclint:none", "-quiet")
+        charSet = "UTF-8"
     }
 }

@@ -30,9 +30,19 @@ public class L402Properties {
 
     private boolean testMode = false;
 
+    private HealthCache healthCache = new HealthCache();
+
     private Lnbits lnbits = new Lnbits();
 
     private Lnd lnd = new Lnd();
+
+    public HealthCache getHealthCache() {
+        return healthCache;
+    }
+
+    public void setHealthCache(HealthCache healthCache) {
+        this.healthCache = healthCache;
+    }
 
     public Lnbits getLnbits() {
         return lnbits;
@@ -128,6 +138,32 @@ public class L402Properties {
 
     public void setTestMode(boolean testMode) {
         this.testMode = testMode;
+    }
+
+    /**
+     * Health-check caching configuration bound from {@code l402.health-cache.*}.
+     */
+    public static class HealthCache {
+
+        private boolean enabled = true;
+
+        private int ttlSeconds = 5;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public int getTtlSeconds() {
+            return ttlSeconds;
+        }
+
+        public void setTtlSeconds(int ttlSeconds) {
+            this.ttlSeconds = ttlSeconds;
+        }
     }
 
     /**

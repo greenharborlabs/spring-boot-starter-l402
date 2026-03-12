@@ -17,6 +17,7 @@ A Spring Boot starter that adds [L402](https://docs.lightning.engineering/the-li
 - [Configuration Reference](#configuration-reference)
 - [Lightning Backend Setup](#lightning-backend-setup)
 - [Dynamic Pricing](#dynamic-pricing)
+- [Spring Security Integration](#spring-security-integration)
 - [Observability](#observability)
 - [Test Mode](#test-mode)
 - [Architecture](#architecture)
@@ -66,12 +67,16 @@ Client                              Server
 ## Features
 
 - **Annotation-driven** -- protect any Spring MVC endpoint with `@L402Protected(priceSats = 10)`
+- **Spring Security integration** -- optional `l402-spring-security` module provides `AuthenticationProvider`, `AuthenticationFilter`, and `L402AuthenticationToken` for use in Spring Security filter chains
 - **Pluggable Lightning backends** -- LND (gRPC) and LNbits (REST) included; implement `LightningBackend` for others
 - **Dynamic pricing** -- implement `L402PricingStrategy` to price based on request content, user tier, or time of day
 - **Macaroon V2** -- binary-compatible with the Go [go-macaroon](https://github.com/go-macaroon/macaroon) library
 - **Caveats** -- built-in `services` and `valid_until` verifiers; add custom `CaveatVerifier` implementations
 - **Credential caching** -- Caffeine-backed cache with configurable size (falls back to in-memory)
+- **Health check caching** -- `CachingLightningBackendWrapper` caches `isHealthy()` results with configurable TTL to avoid hammering the Lightning node
+- **Rate limiting** -- built-in `TokenBucketRateLimiter` prevents invoice flooding attacks on challenge issuance
 - **Micrometer metrics** -- counters for challenges, passes, rejections, revenue; gauges for credential cache size and Lightning health
+- **Health indicator** -- `L402LightningHealthIndicator` integrates with Spring Boot Actuator health checks
 - **Actuator endpoint** -- `GET /actuator/l402` for runtime status, protected endpoints, and earnings
 - **Test mode** -- develop and test without a real Lightning node
 - **Fail-closed** -- Lightning backend unreachable returns 503, never leaks protected content
@@ -164,7 +169,7 @@ All properties are under the `l402.*` prefix.
 |----------|------|---------|-------------|
 | `l402.enabled` | `boolean` | `false` | Master switch. L402 filter is only active when `true`. |
 | `l402.backend` | `string` | -- | Lightning backend to use: `lnbits` or `lnd`. |
-| `l402.service-name` | `string` | `default` | Service name embedded in macaroon caveats. |
+| `l402.service-name` | `string` | `default` | Service name embedded in macaroon caveats. Falls back to `"default"` if unset. |
 | `l402.default-price-sats` | `long` | `10` | Fallback price when not specified in `@L402Protected`. |
 | `l402.default-timeout-seconds` | `long` | `3600` | Credential TTL in seconds. |
 | `l402.root-key-store` | `string` | `file` | Root key storage: `file` or `memory`. |
@@ -172,6 +177,13 @@ All properties are under the `l402.*` prefix.
 | `l402.credential-cache` | `string` | `caffeine` | Cache implementation. Caffeine used when on classpath. |
 | `l402.credential-cache-max-size` | `int` | `10000` | Maximum cached credentials. |
 | `l402.test-mode` | `boolean` | `false` | Enable test mode (dummy invoices, auto-settle). |
+
+### Health Check Caching
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `l402.health-cache.enabled` | `boolean` | `true` | Enable health check result caching for the Lightning backend. |
+| `l402.health-cache.ttl-seconds` | `int` | `5` | TTL in seconds for cached health check results. |
 
 ### LNbits Backend
 
@@ -304,6 +316,40 @@ If the named pricing strategy bean is not found at runtime, the filter falls bac
 
 ---
 
+## Spring Security Integration
+
+For applications that use Spring Security, the optional `l402-spring-security` module provides first-class integration with Spring Security filter chains.
+
+**Add the dependency:**
+
+```kotlin
+implementation("com.greenharborlabs:l402-spring-security:0.1.0")
+```
+
+When both Spring Security and an `L402Validator` bean are present, the module auto-configures:
+
+- **`L402AuthenticationProvider`** -- validates L402 credentials via `L402Validator` and produces an authenticated `L402AuthenticationToken`
+- **`L402AuthenticationFilter`** -- extracts L402 credentials from the `Authorization` header and delegates to the `AuthenticationManager`
+- **`L402AuthenticationToken`** -- carries the validated credential, token ID, service name, and caveat-derived attributes accessible via SpEL in `@PreAuthorize` expressions
+
+The authenticated token grants the `ROLE_L402` authority and exposes caveat values as attributes:
+
+```java
+@PreAuthorize("hasRole('L402')")
+@GetMapping("/api/v1/protected")
+public Response protectedEndpoint(Authentication auth) {
+    var l402Token = (L402AuthenticationToken) auth;
+    String tokenId = l402Token.getTokenId();
+    String service = l402Token.getServiceName();
+    Map<String, String> attrs = l402Token.getAttributes();
+    // ...
+}
+```
+
+Register the filter in your security filter chain configuration. The auto-configuration provides the beans; placement in the filter chain is left to your `SecurityFilterChain` definition.
+
+---
+
 ## Observability
 
 ### Micrometer Metrics
@@ -396,20 +442,23 @@ In test mode:
 +-------------------------------+
          |              |
          v              v
-+----------------+  +---------------------------+
-|  l402-core     |  |  l402-spring-autoconfigure |
-|                |  |                            |
-|  Macaroon V2   |  |  L402AutoConfiguration     |
-|  HMAC-SHA256   |  |  L402SecurityFilter        |
-|  Credential    |  |  L402Properties            |
-|    Store       |  |  @L402Protected            |
-|  Lightning     |  |  L402PricingStrategy       |
-|    Backend     |  |  L402Metrics               |
-|    (interface) |  |  L402ActuatorEndpoint      |
-|                |  |  TestModeAutoConfiguration |
-|  ZERO external |  +---------------------------+
-|  dependencies  |       |              |
-+----------------+       v              v
++----------------+  +---------------------------+  +-------------------------+
+|  l402-core     |  |  l402-spring-autoconfigure |  |  l402-spring-security   |
+|                |  |                            |  |                         |
+|  Macaroon V2   |  |  L402AutoConfiguration     |  |  L402Authentication-    |
+|  HMAC-SHA256   |  |  L402SecurityFilter        |  |    Provider             |
+|  Credential    |  |  L402Properties            |  |  L402Authentication-    |
+|    Store       |  |  @L402Protected            |  |    Filter               |
+|  Lightning     |  |  L402PricingStrategy       |  |  L402Authentication-    |
+|    Backend     |  |  L402Metrics               |  |    Token                |
+|    (interface) |  |  L402ActuatorEndpoint      |  |                         |
+|                |  |  CachingLightning-         |  |  Integrates with       |
+|  ZERO external |  |    BackendWrapper          |  |  Spring Security       |
+|  dependencies  |  |  TokenBucketRateLimiter    |  |  filter chains         |
++----------------+  |  TestModeAutoConfiguration |  +-------------------------+
+                    +---------------------------+
+                         |              |
+                         v              v
                   +-------------+  +---------------+
                   | l402-light- |  | l402-light-   |
                   | ning-lnbits |  | ning-lnd      |
@@ -431,7 +480,8 @@ In test mode:
 | `l402-core` | Macaroon V2 serialization, HMAC-SHA256 crypto, credential store interface, Lightning backend interface, L402 protocol validation | **None** (JDK only) |
 | `l402-lightning-lnbits` | `LightningBackend` implementation using the LNbits REST API | Jackson |
 | `l402-lightning-lnd` | `LightningBackend` implementation using the LND gRPC API | gRPC, Protobuf, Netty |
-| `l402-spring-autoconfigure` | Spring Boot auto-configuration, servlet filter, annotation scanning, metrics, actuator | Spring Boot, Spring MVC, Caffeine (optional), Micrometer (optional), Actuator (optional) |
+| `l402-spring-autoconfigure` | Spring Boot auto-configuration, servlet filter, annotation scanning, metrics, actuator, health caching, rate limiting | Spring Boot, Spring MVC, Caffeine (optional), Micrometer (optional), Actuator (optional) |
+| `l402-spring-security` | Spring Security integration: `L402AuthenticationProvider`, `L402AuthenticationFilter`, and `L402AuthenticationToken` for use in security filter chains | Spring Security |
 | `l402-spring-boot-starter` | Dependency aggregator. No source code. | -- |
 | `l402-example-app` | Runnable reference application with dynamic pricing | Spring Boot Web |
 

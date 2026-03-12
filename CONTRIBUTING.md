@@ -28,6 +28,7 @@ Thank you for your interest in contributing! This guide will help you get starte
 | `l402-lightning-lnd` | LND gRPC lightning backend |
 | `l402-lightning-lnbits` | LNbits REST lightning backend |
 | `l402-spring-autoconfigure` | Spring Boot auto-configuration |
+| `l402-spring-security` | Spring Security integration (optional) |
 | `l402-spring-boot-starter` | Dependency aggregator (no source) |
 | `l402-example-app` | Reference implementation |
 

@@ -1,0 +1,59 @@
+package com.greenharborlabs.l402.spring.security;
+
+import com.greenharborlabs.l402.core.protocol.L402Credential;
+import com.greenharborlabs.l402.core.protocol.L402Exception;
+import com.greenharborlabs.l402.core.protocol.L402Validator;
+import org.springframework.security.authentication.AuthenticationProvider;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
+
+import java.util.Objects;
+
+/**
+ * Spring Security {@link AuthenticationProvider} that validates L402 credentials
+ * using the core {@link L402Validator}.
+ *
+ * <p>Accepts {@link L402AuthenticationToken} instances in their unauthenticated state
+ * (holding raw macaroon + preimage strings), delegates validation to {@link L402Validator},
+ * and returns an authenticated token with the validated credential, service name, and
+ * caveat-derived attributes.
+ */
+public final class L402AuthenticationProvider implements AuthenticationProvider {
+
+    private final L402Validator l402Validator;
+    private final String serviceName;
+
+    public L402AuthenticationProvider(L402Validator l402Validator, String serviceName) {
+        this.l402Validator = Objects.requireNonNull(l402Validator, "l402Validator must not be null");
+        this.serviceName = serviceName;
+    }
+
+    @Override
+    public Authentication authenticate(Authentication authentication) throws AuthenticationException {
+        if (!(authentication instanceof L402AuthenticationToken token)) {
+            return null;
+        }
+
+        String rawMacaroon = token.getRawMacaroon();
+        String rawPreimage = token.getRawPreimage();
+
+        if (rawMacaroon == null || rawPreimage == null) {
+            throw new BadCredentialsException("L402 token missing raw credentials");
+        }
+
+        String authHeader = "L402 " + rawMacaroon + ":" + rawPreimage;
+
+        try {
+            L402Credential credential = l402Validator.validate(authHeader);
+            return L402AuthenticationToken.authenticated(credential, serviceName);
+        } catch (L402Exception e) {
+            throw new BadCredentialsException("L402 authentication failed: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public boolean supports(Class<?> authentication) {
+        return L402AuthenticationToken.class.isAssignableFrom(authentication);
+    }
+}

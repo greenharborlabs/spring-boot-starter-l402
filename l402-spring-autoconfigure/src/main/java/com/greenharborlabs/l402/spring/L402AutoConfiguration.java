@@ -145,6 +145,32 @@ public class L402AutoConfiguration {
     }
 
     @Configuration(proxyBeanMethods = false)
+    @ConditionalOnProperty(name = "l402.health-cache.enabled", havingValue = "true", matchIfMissing = true)
+    static class HealthCacheConfiguration {
+
+        @Bean
+        static org.springframework.beans.factory.config.BeanPostProcessor cachingLightningBackendPostProcessor(
+                org.springframework.core.env.Environment environment) {
+            return new org.springframework.beans.factory.config.BeanPostProcessor() {
+                @Override
+                public Object postProcessAfterInitialization(Object bean, String beanName) {
+                    if (bean instanceof LightningBackend backend
+                            && !(bean instanceof CachingLightningBackendWrapper)
+                            && !(bean instanceof TestModeLightningBackend)) {
+                        int ttlSeconds = Binder.get(environment)
+                                .bind("l402.health-cache.ttl-seconds", Integer.class)
+                                .orElse(5);
+                        return new CachingLightningBackendWrapper(
+                                backend,
+                                java.time.Duration.ofSeconds(ttlSeconds));
+                    }
+                    return bean;
+                }
+            };
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
     @ConditionalOnProperty(name = "l402.backend", havingValue = "lnbits")
     @ConditionalOnClass(name = "com.greenharborlabs.l402.lightning.lnbits.LnbitsBackend")
     static class LnbitsBackendConfiguration {
