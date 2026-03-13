@@ -30,7 +30,7 @@ public final class L402AuthenticationFilter extends OncePerRequestFilter {
 
     private static final String AUTHORIZATION_HEADER = "Authorization";
     private static final Pattern L402_PATTERN =
-            Pattern.compile("(?:LSAT|L402) (.*?):([a-f0-9]{64})");
+            Pattern.compile("(?:LSAT|L402) ([^:]+):([a-f0-9]{64})");
 
     private final AuthenticationManager authenticationManager;
 

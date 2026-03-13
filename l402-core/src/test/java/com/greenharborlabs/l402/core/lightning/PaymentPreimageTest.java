@@ -266,27 +266,41 @@ class PaymentPreimageTest {
         assertThat(preimage.matchesHash(otherHash)).isFalse();
     }
 
-    // --- constantTimeEquals: different-length arrays (via reflection, since method is private) ---
+    // --- equals() indirectly exercises MacaroonCrypto.constantTimeEquals ---
 
     @Test
-    void constantTimeEqualsReturnsFalseForDifferentLengthArrays() throws Exception {
-        var method = PaymentPreimage.class.getDeclaredMethod("constantTimeEquals", byte[].class, byte[].class);
-        method.setAccessible(true);
+    void equalsReturnsTrueForIdenticalPreimages() {
+        var a = new PaymentPreimage(VALID_32_BYTES.clone());
+        var b = new PaymentPreimage(VALID_32_BYTES.clone());
+        assertThat(a).isEqualTo(b);
+        assertThat(a.hashCode()).isEqualTo(b.hashCode());
+    }
 
-        // Shorter vs longer with shared prefix
-        byte[] shorter = {0x01, 0x02, 0x03};
-        byte[] longer = {0x01, 0x02, 0x03, 0x04, 0x05};
-        assertThat((boolean) method.invoke(null, shorter, longer)).isFalse();
-        assertThat((boolean) method.invoke(null, longer, shorter)).isFalse();
+    @Test
+    void equalsReturnsFalseForDifferentPreimages() {
+        var a = new PaymentPreimage(VALID_32_BYTES.clone());
+        byte[] different = VALID_32_BYTES.clone();
+        different[31] = (byte) 0xFF;
+        var b = new PaymentPreimage(different);
+        assertThat(a).isNotEqualTo(b);
+    }
 
-        // Empty vs non-empty
-        assertThat((boolean) method.invoke(null, new byte[0], new byte[]{0x01})).isFalse();
-        assertThat((boolean) method.invoke(null, new byte[]{0x01}, new byte[0])).isFalse();
+    @Test
+    void equalsReturnsFalseForNull() {
+        var a = new PaymentPreimage(VALID_32_BYTES.clone());
+        assertThat(a).isNotEqualTo(null);
+    }
 
-        // Same content, same length — should still return true
-        byte[] a = {0x01, 0x02, 0x03};
-        byte[] b = {0x01, 0x02, 0x03};
-        assertThat((boolean) method.invoke(null, a, b)).isTrue();
+    @Test
+    void equalsReturnsFalseForDifferentType() {
+        var a = new PaymentPreimage(VALID_32_BYTES.clone());
+        assertThat(a).isNotEqualTo("not a preimage");
+    }
+
+    @Test
+    void equalsReturnsTrueForSameInstance() {
+        var a = new PaymentPreimage(VALID_32_BYTES.clone());
+        assertThat(a).isEqualTo(a);
     }
 
     // --- Helper ---

@@ -45,8 +45,8 @@ public final class L402AuthenticationProvider implements AuthenticationProvider 
         String authHeader = "L402 " + rawMacaroon + ":" + rawPreimage;
 
         try {
-            L402Credential credential = l402Validator.validate(authHeader);
-            return L402AuthenticationToken.authenticated(credential, serviceName);
+            L402Validator.ValidationResult result = l402Validator.validate(authHeader);
+            return L402AuthenticationToken.authenticated(result.credential(), serviceName);
         } catch (L402Exception e) {
             throw new BadCredentialsException("L402 authentication failed: " + e.getMessage(), e);
         }

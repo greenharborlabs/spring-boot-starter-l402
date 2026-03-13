@@ -105,11 +105,11 @@ class PreimageValidationTest {
             L402Validator validator = new L402Validator(
                     rootKeyStore, credentialStore, List.of(), SERVICE_NAME);
 
-            L402Credential credential = validator.validate(header);
+            L402Validator.ValidationResult result = validator.validate(header);
 
-            assertThat(credential).isNotNull();
-            assertThat(credential.tokenId()).isEqualTo(tokenIdHex);
-            assertThat(credential.preimage().matchesHash(paymentHash)).isTrue();
+            assertThat(result.credential()).isNotNull();
+            assertThat(result.credential().tokenId()).isEqualTo(tokenIdHex);
+            assertThat(result.credential().preimage().matchesHash(paymentHash)).isTrue();
         }
     }
 

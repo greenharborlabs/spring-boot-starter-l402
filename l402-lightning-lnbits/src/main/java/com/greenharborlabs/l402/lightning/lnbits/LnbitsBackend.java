@@ -22,6 +22,7 @@ public class LnbitsBackend implements LightningBackend {
 
     private static final HexFormat HEX = HexFormat.of();
     private static final Duration DEFAULT_INVOICE_EXPIRY = Duration.ofHours(1);
+    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(5);
 
     private final LnbitsConfig config;
     private final ObjectMapper objectMapper;
@@ -49,6 +50,7 @@ public class LnbitsBackend implements LightningBackend {
                     .uri(URI.create(baseUrl + "/api/v1/payments"))
                     .header("X-Api-Key", config.apiKey())
                     .header("Content-Type", "application/json")
+                    .timeout(REQUEST_TIMEOUT)
                     .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)))
                     .build();
 
@@ -90,6 +92,7 @@ public class LnbitsBackend implements LightningBackend {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(baseUrl + "/api/v1/payments/" + hashHex))
                     .header("X-Api-Key", config.apiKey())
+                    .timeout(REQUEST_TIMEOUT)
                     .GET()
                     .build();
 
@@ -139,6 +142,7 @@ public class LnbitsBackend implements LightningBackend {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(baseUrl + "/api/v1/wallet"))
                     .header("X-Api-Key", config.apiKey())
+                    .timeout(REQUEST_TIMEOUT)
                     .GET()
                     .build();
 

@@ -132,11 +132,12 @@ class L402ValidatorTest {
             L402Validator validator = new L402Validator(
                     rootKeyStore, credentialStore, List.of(), SERVICE_NAME);
 
-            L402Credential credential = validator.validate(validAuthHeader);
+            L402Validator.ValidationResult result = validator.validate(validAuthHeader);
 
-            assertThat(credential).isNotNull();
-            assertThat(credential.tokenId()).isEqualTo(tokenIdHex);
-            assertThat(credential.preimage().toHex()).isEqualTo(HEX.formatHex(preimageBytes));
+            assertThat(result).isNotNull();
+            assertThat(result.freshValidation()).isTrue();
+            assertThat(result.credential().tokenId()).isEqualTo(tokenIdHex);
+            assertThat(result.credential().preimage().toHex()).isEqualTo(HEX.formatHex(preimageBytes));
         }
     }
 
@@ -227,9 +228,10 @@ class L402ValidatorTest {
             L402Validator validator = new L402Validator(
                     emptyKeyStore, credentialStore, List.of(), SERVICE_NAME);
 
-            L402Credential result = validator.validate(validAuthHeader);
+            L402Validator.ValidationResult result = validator.validate(validAuthHeader);
 
-            assertThat(result).isSameAs(cached);
+            assertThat(result.freshValidation()).isFalse();
+            assertThat(result.credential()).isSameAs(cached);
         }
     }
 
@@ -308,12 +310,12 @@ class L402ValidatorTest {
 
             validator.validate(header);
 
-            // TTL should be approximately 120 seconds, definitely not the default 3600.
-            // Allow a few seconds of tolerance for test execution time.
+            // TTL should be approximately 90 seconds (120 - 30s safety margin),
+            // definitely not the default 3600. Allow a few seconds of tolerance for test execution time.
             assertThat(capturedTtl.get())
                     .isGreaterThan(0)
-                    .isLessThanOrEqualTo(120)
-                    .isGreaterThanOrEqualTo(115);
+                    .isLessThanOrEqualTo(90)
+                    .isGreaterThanOrEqualTo(85);
         }
 
         @Test
@@ -351,11 +353,12 @@ class L402ValidatorTest {
 
             validator.validate(header);
 
-            // TTL should be approximately 60 seconds (the minimum), not 120 or the default 3600.
+            // TTL should be approximately 30 seconds (minimum 60 - 30s safety margin),
+            // not 120 or the default 3600.
             assertThat(capturedTtl.get())
                     .isGreaterThan(0)
-                    .isLessThanOrEqualTo(60)
-                    .isGreaterThanOrEqualTo(55);
+                    .isLessThanOrEqualTo(30)
+                    .isGreaterThanOrEqualTo(25);
         }
     }
 

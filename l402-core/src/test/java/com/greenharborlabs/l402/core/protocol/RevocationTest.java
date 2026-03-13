@@ -72,9 +72,9 @@ class RevocationTest {
 
             assertThatCode(() -> validator.validate(authHeader)).doesNotThrowAnyException();
 
-            L402Credential credential = validator.validate(authHeader);
-            assertThat(credential).isNotNull();
-            assertThat(credential.tokenId()).isEqualTo(HEX.formatHex(tokenIdBytes));
+            L402Validator.ValidationResult result = validator.validate(authHeader);
+            assertThat(result.credential()).isNotNull();
+            assertThat(result.credential().tokenId()).isEqualTo(HEX.formatHex(tokenIdBytes));
         }
     }
 

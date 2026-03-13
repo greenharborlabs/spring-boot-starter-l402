@@ -71,10 +71,10 @@ public final class Macaroon {
     public boolean equals(Object o) {
         if (this == o) return true;
         if (!(o instanceof Macaroon other)) return false;
-        return Arrays.equals(identifier, other.identifier)
+        return MacaroonCrypto.constantTimeEquals(identifier, other.identifier)
                 && Objects.equals(location, other.location)
                 && caveats.equals(other.caveats)
-                && Arrays.equals(signature, other.signature);
+                && MacaroonCrypto.constantTimeEquals(signature, other.signature);
     }
 
     @Override

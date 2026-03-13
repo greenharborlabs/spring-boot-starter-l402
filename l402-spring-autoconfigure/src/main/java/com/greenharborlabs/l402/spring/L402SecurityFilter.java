@@ -220,7 +220,8 @@ public class L402SecurityFilter implements Filter {
 
         // 4. Try to parse and validate credential
         try {
-            L402Credential credential = validator.validate(authHeader);
+            L402Validator.ValidationResult result = validator.validate(authHeader);
+            L402Credential credential = result.credential();
 
             // Success: add headers and pass through
             log.log(System.Logger.Level.DEBUG, "L402 credential validated successfully, tokenId={0}", credential.tokenId());
@@ -229,7 +230,7 @@ public class L402SecurityFilter implements Filter {
                     Instant.now().plus(config.timeoutSeconds(), ChronoUnit.SECONDS).toString());
 
             chain.doFilter(request, response);
-            recordPassed(path, config.priceSats());
+            recordPassed(path, config.priceSats(), result.freshValidation());
 
         } catch (L402Exception e) {
             ErrorCode errorCode = e.getErrorCode();
@@ -371,16 +372,18 @@ public class L402SecurityFilter implements Filter {
         }
     }
 
-    private void recordPassed(String path, long priceSats) {
+    private void recordPassed(String path, long priceSats, boolean freshValidation) {
         try {
             if (metrics != null) { metrics.recordPassed(path, priceSats); }
         } catch (Exception e) {
             log.log(System.Logger.Level.WARNING, "Failed to record passed metric: {0}", e.getMessage());
         }
-        try {
-            if (earningsTracker != null) { earningsTracker.recordInvoiceSettled(priceSats); }
-        } catch (Exception e) {
-            log.log(System.Logger.Level.WARNING, "Failed to record invoice settlement in earnings tracker: {0}", e.getMessage());
+        if (freshValidation) {
+            try {
+                if (earningsTracker != null) { earningsTracker.recordInvoiceSettled(priceSats); }
+            } catch (Exception e) {
+                log.log(System.Logger.Level.WARNING, "Failed to record invoice settlement in earnings tracker: {0}", e.getMessage());
+            }
         }
     }
 

@@ -36,13 +36,19 @@ public final class L402Validator {
     }
 
     /**
+     * Wraps a validated credential with a flag indicating whether
+     * it was freshly validated (true) or served from cache (false).
+     */
+    public record ValidationResult(L402Credential credential, boolean freshValidation) {}
+
+    /**
      * Validates an L402 Authorization header and returns the authenticated credential.
      *
      * @param authorizationHeader the raw Authorization header value
-     * @return the validated {@link L402Credential}
+     * @return a {@link ValidationResult} containing the credential and freshness flag
      * @throws L402Exception on any validation failure
      */
-    public L402Credential validate(String authorizationHeader) {
+    public ValidationResult validate(String authorizationHeader) {
         // 1. Parse the authorization header
         L402Credential credential = L402Credential.parse(authorizationHeader);
         String tokenId = credential.tokenId();
@@ -50,7 +56,7 @@ public final class L402Validator {
         // 2. Check credential cache — return immediately if found
         L402Credential cached = credentialStore.get(tokenId);
         if (cached != null) {
-            return cached;
+            return new ValidationResult(cached, false);
         }
 
         // 3. Extract tokenId bytes from macaroon identifier for root key lookup
@@ -96,7 +102,7 @@ public final class L402Validator {
         long cacheTtl = extractCacheTtl(credential.macaroon(), DEFAULT_TTL_SECONDS, now);
         credentialStore.store(tokenId, credential, cacheTtl);
 
-        return credential;
+        return new ValidationResult(credential, true);
     }
 
     /**
@@ -129,6 +135,11 @@ public final class L402Validator {
             }
         }
 
+        // Subtract 30s safety margin to prevent using cached credentials that are about to expire.
+        // Floor at 1 second to ensure a positive TTL.
+        if (found) {
+            minRemaining = Math.max(minRemaining - 30, 1L);
+        }
         return Math.min(minRemaining, defaultTtlSeconds);
     }
 }

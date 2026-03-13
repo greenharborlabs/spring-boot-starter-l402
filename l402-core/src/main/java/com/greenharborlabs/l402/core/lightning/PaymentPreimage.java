@@ -1,5 +1,7 @@
 package com.greenharborlabs.l402.core.lightning;
 
+import com.greenharborlabs.l402.core.macaroon.MacaroonCrypto;
+
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
@@ -43,7 +45,7 @@ public record PaymentPreimage(byte[] value) {
                     "Payment hash must be exactly " + SHA256_LENGTH + " bytes, got " + paymentHash.length);
         }
         byte[] computed = sha256(value);
-        return constantTimeEquals(computed, paymentHash);
+        return MacaroonCrypto.constantTimeEquals(computed, paymentHash);
     }
 
     /**
@@ -75,21 +77,12 @@ public record PaymentPreimage(byte[] value) {
     @Override
     public boolean equals(Object o) {
         return o instanceof PaymentPreimage other
-                && java.util.Arrays.equals(value, other.value);
+                && MacaroonCrypto.constantTimeEquals(value, other.value);
     }
 
     @Override
     public int hashCode() {
         return java.util.Arrays.hashCode(value);
-    }
-
-    private static boolean constantTimeEquals(byte[] a, byte[] b) {
-        int result = a.length ^ b.length;
-        int len = Math.min(a.length, b.length);
-        for (int i = 0; i < len; i++) {
-            result |= a[i] ^ b[i];
-        }
-        return result == 0;
     }
 
     private static byte[] sha256(byte[] input) {

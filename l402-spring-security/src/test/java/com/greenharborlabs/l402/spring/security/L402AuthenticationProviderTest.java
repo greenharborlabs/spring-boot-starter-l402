@@ -74,7 +74,8 @@ class L402AuthenticationProviderTest {
 
         L402Credential credential = createTestCredential(List.of(new Caveat("service", "api")));
         String expectedHeader = "L402 " + macaroonB64 + ":" + preimageHex;
-        when(l402Validator.validate(eq(expectedHeader))).thenReturn(credential);
+        when(l402Validator.validate(eq(expectedHeader)))
+                .thenReturn(new L402Validator.ValidationResult(credential, true));
 
         var unauthToken = new L402AuthenticationToken(macaroonB64, preimageHex);
 
@@ -129,7 +130,8 @@ class L402AuthenticationProviderTest {
         String expectedHeader = "L402 " + macaroonB64 + ":" + preimageHex;
 
         L402Credential credential = createTestCredential(List.of());
-        when(l402Validator.validate(eq(expectedHeader))).thenReturn(credential);
+        when(l402Validator.validate(eq(expectedHeader)))
+                .thenReturn(new L402Validator.ValidationResult(credential, true));
 
         var unauthToken = new L402AuthenticationToken(macaroonB64, preimageHex);
         Authentication result = providerNoService.authenticate(unauthToken);

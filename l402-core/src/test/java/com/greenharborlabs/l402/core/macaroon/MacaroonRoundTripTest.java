@@ -215,6 +215,72 @@ class MacaroonRoundTripTest {
         }
     }
 
+    @Nested
+    @DisplayName("equals() — indirectly exercises MacaroonCrypto.constantTimeEquals")
+    class Equality {
+
+        @Test
+        @DisplayName("identical macaroons are equal")
+        void identicalMacaroonsAreEqual() {
+            Macaroon a = MacaroonMinter.mint(ROOT_KEY, identifier, LOCATION, List.of(new Caveat("service", "test")));
+            Macaroon b = MacaroonMinter.mint(ROOT_KEY, identifier, LOCATION, List.of(new Caveat("service", "test")));
+            assertThat(a).isEqualTo(b);
+            assertThat(a.hashCode()).isEqualTo(b.hashCode());
+        }
+
+        @Test
+        @DisplayName("different signature → not equal")
+        void differentSignatureMeansNotEqual() {
+            byte[] otherRootKey = new byte[32];
+            Arrays.fill(otherRootKey, (byte) 0x99);
+            Macaroon a = MacaroonMinter.mint(ROOT_KEY, identifier, LOCATION, List.of());
+            Macaroon b = MacaroonMinter.mint(otherRootKey, identifier, LOCATION, List.of());
+            assertThat(a).isNotEqualTo(b);
+        }
+
+        @Test
+        @DisplayName("different identifier → not equal")
+        void differentIdentifierMeansNotEqual() {
+            byte[] otherPaymentHash = new byte[32];
+            Arrays.fill(otherPaymentHash, (byte) 0xCC);
+            MacaroonIdentifier otherId = new MacaroonIdentifier(0, otherPaymentHash, TOKEN_ID);
+            Macaroon a = MacaroonMinter.mint(ROOT_KEY, identifier, LOCATION, List.of());
+            Macaroon b = MacaroonMinter.mint(ROOT_KEY, otherId, LOCATION, List.of());
+            assertThat(a).isNotEqualTo(b);
+        }
+
+        @Test
+        @DisplayName("different caveats → not equal")
+        void differentCaveatsMeansNotEqual() {
+            Macaroon a = MacaroonMinter.mint(ROOT_KEY, identifier, LOCATION, List.of(new Caveat("service", "alpha")));
+            Macaroon b = MacaroonMinter.mint(ROOT_KEY, identifier, LOCATION, List.of(new Caveat("service", "beta")));
+            assertThat(a).isNotEqualTo(b);
+        }
+
+        @Test
+        @DisplayName("different location → not equal")
+        void differentLocationMeansNotEqual() {
+            Macaroon a = MacaroonMinter.mint(ROOT_KEY, identifier, LOCATION, List.of());
+            Macaroon b = MacaroonMinter.mint(ROOT_KEY, identifier, "https://other.example.com", List.of());
+            assertThat(a).isNotEqualTo(b);
+        }
+
+        @Test
+        @DisplayName("same instance is equal to itself")
+        void sameInstanceIsEqual() {
+            Macaroon a = MacaroonMinter.mint(ROOT_KEY, identifier, LOCATION, List.of());
+            assertThat(a).isEqualTo(a);
+        }
+
+        @Test
+        @DisplayName("not equal to null or different type")
+        void notEqualToNullOrDifferentType() {
+            Macaroon a = MacaroonMinter.mint(ROOT_KEY, identifier, LOCATION, List.of());
+            assertThat(a).isNotEqualTo(null);
+            assertThat(a).isNotEqualTo("not a macaroon");
+        }
+    }
+
     private static CaveatVerifier acceptingVerifier(String key) {
         return new CaveatVerifier() {
             @Override

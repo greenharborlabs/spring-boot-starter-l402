@@ -12,17 +12,16 @@ import lnrpc.LightningGrpc;
 import lnrpc.Lnrpc;
 
 import java.time.Instant;
+import java.util.concurrent.TimeUnit;
 
 /**
  * {@link LightningBackend} implementation backed by an LND node via gRPC.
  */
 public class LndBackend implements LightningBackend {
 
-    private final LndConfig config;
     private final LightningGrpc.LightningBlockingStub stub;
 
     public LndBackend(LndConfig config, ManagedChannel channel) {
-        this.config = config;
         this.stub = LightningGrpc.newBlockingStub(channel);
     }
 
@@ -33,10 +32,10 @@ public class LndBackend implements LightningBackend {
                 .setMemo(memo)
                 .build();
 
-        Lnrpc.AddInvoiceResponse addResponse = stub.addInvoice(request);
+        Lnrpc.AddInvoiceResponse addResponse = stub.withDeadlineAfter(5, TimeUnit.SECONDS).addInvoice(request);
 
         // Look up the full invoice to get creation/expiry timestamps
-        Lnrpc.Invoice lndInvoice = stub.lookupInvoice(
+        Lnrpc.Invoice lndInvoice = stub.withDeadlineAfter(5, TimeUnit.SECONDS).lookupInvoice(
                 Lnrpc.PaymentHash.newBuilder()
                         .setRHash(addResponse.getRHash())
                         .build());
@@ -50,14 +49,14 @@ public class LndBackend implements LightningBackend {
                 .setRHash(ByteString.copyFrom(paymentHash))
                 .build();
 
-        Lnrpc.Invoice lndInvoice = stub.lookupInvoice(request);
+        Lnrpc.Invoice lndInvoice = stub.withDeadlineAfter(5, TimeUnit.SECONDS).lookupInvoice(request);
         return mapInvoice(lndInvoice);
     }
 
     @Override
     public boolean isHealthy() {
         try {
-            Lnrpc.GetInfoResponse info = stub.getInfo(
+            Lnrpc.GetInfoResponse info = stub.withDeadlineAfter(5, TimeUnit.SECONDS).getInfo(
                     Lnrpc.GetInfoRequest.getDefaultInstance());
             return info.getSyncedToChain();
         } catch (StatusRuntimeException _) {
