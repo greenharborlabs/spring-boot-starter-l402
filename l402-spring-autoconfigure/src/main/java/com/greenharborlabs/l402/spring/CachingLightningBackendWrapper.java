@@ -9,16 +9,18 @@ import java.time.Duration;
  * Decorates a {@link LightningBackend} to cache the result of {@link #isHealthy()}
  * for a configurable TTL. All other methods delegate directly to the wrapped backend.
  *
- * <p>Thread safety is achieved via {@code volatile} fields; the slight risk of
- * duplicate evaluation on concurrent cache miss is acceptable for a health check.
+ * <p>Thread safety is achieved via a single {@code volatile} snapshot record;
+ * the slight risk of duplicate evaluation on concurrent cache miss is acceptable
+ * for a health check.
  */
 public class CachingLightningBackendWrapper implements LightningBackend {
+
+    private record HealthSnapshot(boolean healthy, long atNanos) {}
 
     private final LightningBackend delegate;
     private final long ttlNanos;
 
-    private volatile boolean cachedHealthy;
-    private volatile long cachedAtNanos;
+    private volatile HealthSnapshot snapshot = new HealthSnapshot(false, 0);
 
     public CachingLightningBackendWrapper(LightningBackend delegate, Duration ttl) {
         if (delegate == null) {
@@ -29,8 +31,6 @@ public class CachingLightningBackendWrapper implements LightningBackend {
         }
         this.delegate = delegate;
         this.ttlNanos = ttl.toNanos();
-        // Force first call to miss the cache
-        this.cachedAtNanos = 0;
     }
 
     @Override
@@ -46,13 +46,13 @@ public class CachingLightningBackendWrapper implements LightningBackend {
     @Override
     public boolean isHealthy() {
         long now = System.nanoTime();
+        HealthSnapshot current = snapshot;
         // nanoTime can wrap, so use subtraction for correct elapsed calculation
-        if (cachedAtNanos != 0 && (now - cachedAtNanos) < ttlNanos) {
-            return cachedHealthy;
+        if (current.atNanos() != 0 && (now - current.atNanos()) < ttlNanos) {
+            return current.healthy();
         }
         boolean healthy = delegate.isHealthy();
-        cachedHealthy = healthy;
-        cachedAtNanos = now;
+        snapshot = new HealthSnapshot(healthy, now);
         return healthy;
     }
 

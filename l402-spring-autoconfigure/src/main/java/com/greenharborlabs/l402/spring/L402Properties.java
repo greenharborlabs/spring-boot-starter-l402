@@ -251,6 +251,16 @@ public class L402Properties {
 
         private String macaroonPath;
 
+        private boolean allowPlaintext = false;
+
+        public boolean isAllowPlaintext() {
+            return allowPlaintext;
+        }
+
+        public void setAllowPlaintext(boolean allowPlaintext) {
+            this.allowPlaintext = allowPlaintext;
+        }
+
         public String getHost() {
             return host;
         }

@@ -3,6 +3,8 @@ package com.greenharborlabs.l402.spring;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -107,6 +109,43 @@ class TokenBucketRateLimiterTest {
 
         // Exactly maxTokens requests should have been allowed
         assertThat(successCount.get()).isEqualTo(maxTokens);
+    }
+
+    @Test
+    @DisplayName("rejects new keys when bucket map reaches hard cap")
+    void rejectsNewKeysAtHardCap() throws Exception {
+        var limiter = new TokenBucketRateLimiter(5, 1.0);
+
+        // Use reflection to pre-fill the internal map up to MAX_BUCKETS
+        Field bucketsField = TokenBucketRateLimiter.class.getDeclaredField("buckets");
+        bucketsField.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        var buckets = (ConcurrentHashMap<String, Object>) bucketsField.get(limiter);
+
+        Field maxBucketsField = TokenBucketRateLimiter.class.getDeclaredField("MAX_BUCKETS");
+        maxBucketsField.setAccessible(true);
+        int maxBuckets = (int) maxBucketsField.get(null);
+
+        // Add a known key first, then fill up to capacity with dummy entries
+        assertThat(limiter.tryAcquire("existing-key")).isTrue();
+
+        // Use the Bucket inner class to create dummy entries
+        Class<?> bucketClass = Class.forName(TokenBucketRateLimiter.class.getName() + "$Bucket");
+        var bucketConstructor = bucketClass.getDeclaredConstructor(double.class, long.class);
+        bucketConstructor.setAccessible(true);
+        Object dummyBucket = bucketConstructor.newInstance(5.0, System.nanoTime());
+
+        for (int i = buckets.size(); i < maxBuckets; i++) {
+            buckets.put("dummy-" + i, dummyBucket);
+        }
+
+        assertThat(buckets.size()).isEqualTo(maxBuckets);
+
+        // New key should be rejected
+        assertThat(limiter.tryAcquire("brand-new-key")).isFalse();
+
+        // Existing key should still work
+        assertThat(limiter.tryAcquire("existing-key")).isTrue();
     }
 
     @Test

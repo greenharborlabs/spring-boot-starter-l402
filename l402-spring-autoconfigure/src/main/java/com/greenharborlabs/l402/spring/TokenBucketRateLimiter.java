@@ -16,6 +16,7 @@ import java.util.concurrent.atomic.AtomicLong;
 public class TokenBucketRateLimiter implements L402RateLimiter {
 
     private static final long CLEANUP_INTERVAL = 1000;
+    private static final int MAX_BUCKETS = 100_000;
 
     private final int maxTokens;
     private final double refillRatePerSecond;
@@ -43,6 +44,11 @@ public class TokenBucketRateLimiter implements L402RateLimiter {
     public boolean tryAcquire(String key) {
         if (callCounter.incrementAndGet() % CLEANUP_INTERVAL == 0) {
             cleanupStaleEntries();
+        }
+
+        // Hard cap: reject new keys when the map is at capacity to prevent OOM
+        if (!buckets.containsKey(key) && buckets.size() >= MAX_BUCKETS) {
+            return false;
         }
 
         boolean[] allowed = {false};

@@ -52,11 +52,23 @@ public class L402AutoConfiguration {
     public RootKeyStore rootKeyStore(L402Properties properties) {
         return switch (properties.getRootKeyStore()) {
             case "memory" -> new InMemoryRootKeyStore();
-            case "file" -> new FileBasedRootKeyStore(Path.of(
-                    properties.getRootKeyStorePath().replace("~", System.getProperty("user.home"))));
-            default -> new FileBasedRootKeyStore(Path.of(
-                    properties.getRootKeyStorePath().replace("~", System.getProperty("user.home"))));
+            case "file" -> new FileBasedRootKeyStore(Path.of(resolvePath(properties.getRootKeyStorePath())));
+            default -> new FileBasedRootKeyStore(Path.of(resolvePath(properties.getRootKeyStorePath())));
         };
+    }
+
+    private static String resolvePath(String rawPath) {
+        if (rawPath == null) {
+            return rawPath;
+        }
+        String home = System.getProperty("user.home");
+        if ("~".equals(rawPath)) {
+            return home;
+        }
+        if (rawPath.startsWith("~/")) {
+            return home + rawPath.substring(1);
+        }
+        return rawPath;
     }
 
     @Configuration(proxyBeanMethods = false)
@@ -227,6 +239,11 @@ public class L402AutoConfiguration {
 
         private static io.grpc.ManagedChannel buildChannel(L402Properties.Lnd lnd) {
             if (lnd.getTlsCertPath() == null) {
+                if (!lnd.isAllowPlaintext()) {
+                    throw new IllegalStateException(
+                            "LND gRPC TLS cert path is not configured. Set l402.lnd.tls-cert-path "
+                                    + "or explicitly set l402.lnd.allow-plaintext=true for local development.");
+                }
                 LOG.log(System.Logger.Level.WARNING,
                         "LND gRPC channel using PLAINTEXT — not suitable for production");
                 return io.grpc.ManagedChannelBuilder

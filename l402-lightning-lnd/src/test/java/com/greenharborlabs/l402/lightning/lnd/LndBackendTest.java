@@ -80,30 +80,28 @@ class LndBackendTest {
                 .setPaymentRequest(fakeBolt11)
                 .build();
 
-        // Set up the corresponding invoice that LookupInvoice would return,
-        // since createInvoice may internally look up the full invoice details.
-        fakeService.lookupInvoiceResponse = Lnrpc.Invoice.newBuilder()
-                .setRHash(ByteString.copyFrom(fakePaymentHash))
-                .setPaymentRequest(fakeBolt11)
-                .setValue(amountSats)
-                .setMemo(memo)
-                .setState(Lnrpc.Invoice.InvoiceState.OPEN)
-                .setCreationDate(1700000000L)
-                .setExpiry(3600L)
-                .build();
-
+        java.time.Instant before = java.time.Instant.now();
         Invoice result = backend.createInvoice(amountSats, memo);
+        java.time.Instant after = java.time.Instant.now();
 
         assertThat(result).isNotNull();
         assertThat(result.paymentHash()).isEqualTo(fakePaymentHash);
         assertThat(result.bolt11()).isEqualTo(fakeBolt11);
         assertThat(result.amountSats()).isEqualTo(amountSats);
+        assertThat(result.memo()).isEqualTo(memo);
         assertThat(result.status()).isEqualTo(InvoiceStatus.PENDING);
+        assertThat(result.preimage()).isNull();
+        assertThat(result.createdAt()).isBetween(before, after);
+        assertThat(result.expiresAt()).isBetween(before.plusSeconds(3600), after.plusSeconds(3600));
 
         // Verify the AddInvoice RPC received the correct parameters
         assertThat(fakeService.lastAddInvoiceRequest).isNotNull();
         assertThat(fakeService.lastAddInvoiceRequest.getValue()).isEqualTo(amountSats);
         assertThat(fakeService.lastAddInvoiceRequest.getMemo()).isEqualTo(memo);
+        assertThat(fakeService.lastAddInvoiceRequest.getExpiry()).isEqualTo(3600L);
+
+        // Verify no LookupInvoice call was made
+        assertThat(fakeService.lastPaymentHashRequest).isNull();
     }
 
     // -------------------------------------------------------------------------

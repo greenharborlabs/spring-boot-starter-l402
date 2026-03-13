@@ -25,22 +25,31 @@ public class LndBackend implements LightningBackend {
         this.stub = LightningGrpc.newBlockingStub(channel);
     }
 
+    private static final long DEFAULT_EXPIRY_SECONDS = 3600L;
+
     @Override
     public Invoice createInvoice(long amountSats, String memo) {
         var request = Lnrpc.Invoice.newBuilder()
                 .setValue(amountSats)
                 .setMemo(memo)
+                .setExpiry(DEFAULT_EXPIRY_SECONDS)
                 .build();
 
         Lnrpc.AddInvoiceResponse addResponse = stub.withDeadlineAfter(5, TimeUnit.SECONDS).addInvoice(request);
 
-        // Look up the full invoice to get creation/expiry timestamps
-        Lnrpc.Invoice lndInvoice = stub.withDeadlineAfter(5, TimeUnit.SECONDS).lookupInvoice(
-                Lnrpc.PaymentHash.newBuilder()
-                        .setRHash(addResponse.getRHash())
-                        .build());
+        Instant createdAt = Instant.now();
+        Instant expiresAt = createdAt.plusSeconds(DEFAULT_EXPIRY_SECONDS);
 
-        return mapInvoice(lndInvoice);
+        return new Invoice(
+                addResponse.getRHash().toByteArray(),
+                addResponse.getPaymentRequest(),
+                amountSats,
+                memo,
+                InvoiceStatus.PENDING,
+                null,
+                createdAt,
+                expiresAt
+        );
     }
 
     @Override
