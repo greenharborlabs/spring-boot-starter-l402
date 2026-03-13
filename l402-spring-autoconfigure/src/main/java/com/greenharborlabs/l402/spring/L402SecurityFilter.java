@@ -339,10 +339,13 @@ public class L402SecurityFilter implements Filter {
         response.setContentType("application/json");
 
         String tokenDetail = tokenId != null ? tokenId : "";
+        log.log(System.Logger.Level.WARNING, "L402 validation failed for token {0}: {1}", tokenDetail, message);
+
+        String clientMessage = "Invalid L402 credential";
         response.getWriter().write("""
                 {"code": %d, "error": "%s", "message": "%s", "details": {"token_id": "%s"}}"""
                 .formatted(errorCode.getHttpStatus(), errorCode.name(),
-                        JsonEscaper.escape(message), JsonEscaper.escape(tokenDetail)));
+                        JsonEscaper.escape(clientMessage), JsonEscaper.escape(tokenDetail)));
     }
 
     private void writeRateLimitedResponse(HttpServletResponse response) throws IOException {

@@ -112,6 +112,13 @@ public class L402AutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    public L402RateLimiter l402RateLimiter(L402Properties properties) {
+        var rl = properties.getRateLimit();
+        return new TokenBucketRateLimiter(rl.getBurstSize(), rl.getRequestsPerSecond());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
     public L402SecurityFilter l402SecurityFilter(L402EndpointRegistry registry,
                                                   LightningBackend lightningBackend,
                                                   RootKeyStore rootKeyStore,
@@ -119,13 +126,17 @@ public class L402AutoConfiguration {
                                                   ApplicationContext applicationContext,
                                                   L402Properties properties,
                                                   @Autowired(required = false) L402Metrics l402Metrics,
-                                                  L402EarningsTracker l402EarningsTracker) {
+                                                  L402EarningsTracker l402EarningsTracker,
+                                                  @Autowired(required = false) L402RateLimiter l402RateLimiter) {
         var filter = new L402SecurityFilter(registry, lightningBackend, rootKeyStore,
                 l402Validator, applicationContext, properties.getServiceName(), properties);
         if (l402Metrics != null) {
             filter.setMetrics(l402Metrics);
         }
         filter.setEarningsTracker(l402EarningsTracker);
+        if (l402RateLimiter != null) {
+            filter.setRateLimiter(l402RateLimiter);
+        }
         return filter;
     }
 
@@ -196,6 +207,8 @@ public class L402AutoConfiguration {
     @ConditionalOnClass(name = "com.greenharborlabs.l402.lightning.lnd.LndBackend")
     static class LndBackendConfiguration {
 
+        private static final System.Logger LOG = System.getLogger(LndBackendConfiguration.class.getName());
+
         @Bean(destroyMethod = "shutdown")
         @ConditionalOnMissingBean(io.grpc.ManagedChannel.class)
         io.grpc.ManagedChannel lndManagedChannel(L402Properties properties) {
@@ -214,7 +227,8 @@ public class L402AutoConfiguration {
 
         private static io.grpc.ManagedChannel buildChannel(L402Properties.Lnd lnd) {
             if (lnd.getTlsCertPath() == null) {
-                // Plaintext channel for dev/test environments
+                LOG.log(System.Logger.Level.WARNING,
+                        "LND gRPC channel using PLAINTEXT — not suitable for production");
                 return io.grpc.ManagedChannelBuilder
                         .forAddress(lnd.getHost(), lnd.getPort())
                         .usePlaintext()

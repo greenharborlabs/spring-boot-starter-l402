@@ -162,10 +162,10 @@ class L402ActuatorEndpointTest {
         }
 
         @Test
-        @DisplayName("returns testMode field")
-        void returnsTestMode() throws Exception {
+        @DisplayName("testMode field is not present in response")
+        void testModeNotPresent() throws Exception {
             mockMvc.perform(get("/actuator/l402"))
-                    .andExpect(jsonPath("$.testMode", is(false)));
+                    .andExpect(jsonPath("$.testMode").doesNotExist());
         }
 
         @Test

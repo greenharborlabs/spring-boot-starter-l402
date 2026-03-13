@@ -65,6 +65,18 @@
       "defaultValue": false
     },
     {
+      "name": "l402.rate-limit.requests-per-second",
+      "type": "java.lang.Double",
+      "description": "Token refill rate per second for the challenge rate limiter. Controls the sustained request rate allowed per client IP before 402 challenges are throttled.",
+      "defaultValue": 10.0
+    },
+    {
+      "name": "l402.rate-limit.burst-size",
+      "type": "java.lang.Integer",
+      "description": "Maximum burst size (token bucket capacity) for the challenge rate limiter. Allows short bursts of requests above the sustained rate before throttling kicks in.",
+      "defaultValue": 20
+    },
+    {
       "name": "l402.lnbits.url",
       "type": "java.lang.String",
       "description": "Base URL of the LNbits instance (e.g., https://lnbits.example.com). Required when l402.backend=lnbits."

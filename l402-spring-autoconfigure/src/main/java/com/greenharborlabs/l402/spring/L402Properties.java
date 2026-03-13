@@ -32,11 +32,21 @@ public class L402Properties {
 
     private boolean trustForwardedHeaders = false;
 
+    private RateLimit rateLimit = new RateLimit();
+
     private HealthCache healthCache = new HealthCache();
 
     private Lnbits lnbits = new Lnbits();
 
     private Lnd lnd = new Lnd();
+
+    public RateLimit getRateLimit() {
+        return rateLimit;
+    }
+
+    public void setRateLimit(RateLimit rateLimit) {
+        this.rateLimit = rateLimit;
+    }
 
     public HealthCache getHealthCache() {
         return healthCache;
@@ -148,6 +158,32 @@ public class L402Properties {
 
     public void setTrustForwardedHeaders(boolean trustForwardedHeaders) {
         this.trustForwardedHeaders = trustForwardedHeaders;
+    }
+
+    /**
+     * Rate-limiting configuration bound from {@code l402.rate-limit.*}.
+     */
+    public static class RateLimit {
+
+        private double requestsPerSecond = 10.0;
+
+        private int burstSize = 20;
+
+        public double getRequestsPerSecond() {
+            return requestsPerSecond;
+        }
+
+        public void setRequestsPerSecond(double requestsPerSecond) {
+            this.requestsPerSecond = requestsPerSecond;
+        }
+
+        public int getBurstSize() {
+            return burstSize;
+        }
+
+        public void setBurstSize(int burstSize) {
+            this.burstSize = burstSize;
+        }
     }
 
     /**

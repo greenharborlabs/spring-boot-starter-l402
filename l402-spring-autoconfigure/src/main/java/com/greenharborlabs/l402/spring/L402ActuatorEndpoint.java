@@ -44,7 +44,6 @@ public class L402ActuatorEndpoint {
         result.put("enabled", properties.isEnabled());
         result.put("backend", properties.getBackend());
         result.put("backendHealthy", lightningBackend.isHealthy());
-        result.put("testMode", properties.isTestMode());
         result.put("serviceName", properties.getServiceName());
         result.put("protectedEndpoints", buildProtectedEndpoints());
         result.put("credentials", buildCredentials());
