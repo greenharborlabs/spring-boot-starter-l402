@@ -108,6 +108,7 @@ class L402AuthenticationProviderTest {
         assertThatThrownBy(() -> provider.authenticate(unauthToken))
                 .isInstanceOf(BadCredentialsException.class)
                 .hasMessageContaining("L402 authentication failed")
+                .hasMessageNotContaining("bad sig")
                 .hasCauseInstanceOf(L402Exception.class);
     }
 

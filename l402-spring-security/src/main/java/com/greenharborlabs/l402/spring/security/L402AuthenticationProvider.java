@@ -1,6 +1,5 @@
 package com.greenharborlabs.l402.spring.security;
 
-import com.greenharborlabs.l402.core.protocol.L402Credential;
 import com.greenharborlabs.l402.core.protocol.L402Exception;
 import com.greenharborlabs.l402.core.protocol.L402Validator;
 import org.springframework.security.authentication.AuthenticationProvider;
@@ -48,7 +47,7 @@ public final class L402AuthenticationProvider implements AuthenticationProvider 
             L402Validator.ValidationResult result = l402Validator.validate(authHeader);
             return L402AuthenticationToken.authenticated(result.credential(), serviceName);
         } catch (L402Exception e) {
-            throw new BadCredentialsException("L402 authentication failed: " + e.getMessage(), e);
+            throw new BadCredentialsException("L402 authentication failed", e);
         }
     }
 

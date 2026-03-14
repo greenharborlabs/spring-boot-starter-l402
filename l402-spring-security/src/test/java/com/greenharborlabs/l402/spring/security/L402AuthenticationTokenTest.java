@@ -32,11 +32,11 @@ class L402AuthenticationTokenTest {
     }
 
     @Test
-    void unauthenticatedTokenPrincipalIsRawMacaroon() {
+    void unauthenticatedTokenRedactsSensitiveValues() {
         var token = new L402AuthenticationToken("mac-base64", "abcd".repeat(16));
 
-        assertThat(token.getPrincipal()).isEqualTo("mac-base64");
-        assertThat(token.getCredentials()).isEqualTo("mac-base64:" + "abcd".repeat(16));
+        assertThat(token.getPrincipal()).isEqualTo("[unauthenticated-l402]");
+        assertThat(token.getCredentials()).isEqualTo("[REDACTED]");
     }
 
     @Test

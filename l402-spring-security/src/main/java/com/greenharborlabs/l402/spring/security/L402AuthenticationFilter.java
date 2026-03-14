@@ -4,6 +4,8 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
@@ -28,9 +30,11 @@ import java.util.regex.Pattern;
  */
 public final class L402AuthenticationFilter extends OncePerRequestFilter {
 
+    private static final Logger log = LoggerFactory.getLogger(L402AuthenticationFilter.class);
+
     private static final String AUTHORIZATION_HEADER = "Authorization";
     private static final Pattern L402_PATTERN =
-            Pattern.compile("(?:LSAT|L402) ([^:]+):([a-fA-F0-9]{64})");
+            Pattern.compile("(?:LSAT|L402) ([A-Za-z0-9+/=]{1,4096}):([a-fA-F0-9]{64})");
 
     private final AuthenticationManager authenticationManager;
 
@@ -60,11 +64,6 @@ public final class L402AuthenticationFilter extends OncePerRequestFilter {
         String macaroonBase64 = matcher.group(1);
         String preimageHex = matcher.group(2);
 
-        if (macaroonBase64.isEmpty()) {
-            filterChain.doFilter(request, response);
-            return;
-        }
-
         var unauthenticatedToken = new L402AuthenticationToken(macaroonBase64, preimageHex);
 
         try {
@@ -78,6 +77,13 @@ public final class L402AuthenticationFilter extends OncePerRequestFilter {
             response.setContentType("application/json");
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.getWriter().write("{\"error\": \"L402 authentication failed\"}");
+            return;
+        } catch (RuntimeException e) {
+            log.warn("L402 authentication encountered an unexpected error", e);
+            SecurityContextHolder.clearContext();
+            response.setContentType("application/json");
+            response.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
+            response.getWriter().write("{\"error\": \"Service temporarily unavailable\"}");
             return;
         }
 

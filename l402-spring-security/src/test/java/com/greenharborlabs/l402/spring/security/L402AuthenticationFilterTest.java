@@ -182,4 +182,40 @@ class L402AuthenticationFilterTest {
         verify(filterChain).doFilter(request, response);
         verify(authenticationManager, never()).authenticate(any());
     }
+
+    @Test
+    void returns503WhenRuntimeExceptionThrown() throws ServletException, IOException {
+        request.addHeader("Authorization", "L402 " + VALID_MACAROON_B64 + ":" + VALID_PREIMAGE);
+        when(authenticationManager.authenticate(any()))
+                .thenThrow(new RuntimeException("gRPC channel unavailable"));
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        assertThat(response.getStatus()).isEqualTo(503);
+        assertThat(response.getContentType()).isEqualTo("application/json");
+        assertThat(response.getContentAsString()).isEqualTo("{\"error\": \"Service temporarily unavailable\"}");
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        verify(filterChain, never()).doFilter(request, response);
+    }
+
+    @Test
+    void skipsWhenMacaroonExceedsMaxLength() throws ServletException, IOException {
+        String oversizedMacaroon = "A".repeat(4097);
+        request.addHeader("Authorization", "L402 " + oversizedMacaroon + ":" + VALID_PREIMAGE);
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        verify(filterChain).doFilter(request, response);
+        verify(authenticationManager, never()).authenticate(any());
+    }
+
+    @Test
+    void skipsWhenMacaroonContainsInvalidCharacters() throws ServletException, IOException {
+        request.addHeader("Authorization", "L402 mac:with:colons:" + VALID_PREIMAGE);
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        verify(filterChain).doFilter(request, response);
+        verify(authenticationManager, never()).authenticate(any());
+    }
 }

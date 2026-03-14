@@ -86,7 +86,7 @@ public final class L402AuthenticationToken extends AbstractAuthenticationToken {
         if (credential != null) {
             return credential;
         }
-        return rawMacaroon + ":" + rawPreimage;
+        return "[REDACTED]";
     }
 
     @Override
@@ -94,7 +94,7 @@ public final class L402AuthenticationToken extends AbstractAuthenticationToken {
         if (tokenId != null) {
             return tokenId;
         }
-        return rawMacaroon;
+        return "[unauthenticated-l402]";
     }
 
     public String getTokenId() {
