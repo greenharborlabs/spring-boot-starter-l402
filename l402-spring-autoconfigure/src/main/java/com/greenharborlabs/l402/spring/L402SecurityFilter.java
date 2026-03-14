@@ -212,6 +212,11 @@ public class L402SecurityFilter implements Filter {
                 return;
 
             } catch (L402Exception e) {
+                // Consume rate limiter token on auth failure to penalize brute-force probing
+                L402RateLimiter limiter = this.rateLimiter;
+                if (limiter != null) {
+                    limiter.tryAcquire(resolveClientIp(httpRequest));
+                }
                 ErrorCode errorCode = e.getErrorCode();
                 log.log(System.Logger.Level.WARNING, "L402 validation failed, errorCode={0}, tokenId={1}", errorCode, e.getTokenId());
                 if (errorCode == ErrorCode.MALFORMED_HEADER) {

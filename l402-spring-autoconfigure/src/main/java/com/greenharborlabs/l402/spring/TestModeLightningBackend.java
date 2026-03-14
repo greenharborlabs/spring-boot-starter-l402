@@ -10,9 +10,10 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collections;
 import java.util.HexFormat;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * Dummy {@link LightningBackend} for test/development mode (R-014).
@@ -32,9 +33,16 @@ public final class TestModeLightningBackend implements LightningBackend {
     private static final System.Logger log = System.getLogger(TestModeLightningBackend.class.getName());
     private static final int HASH_BYTES = 32;
     private static final Duration DEFAULT_EXPIRY = Duration.ofHours(1);
+    private static final int MAX_PREIMAGE_ENTRIES = 10_000;
 
     private final SecureRandom random;
-    private final ConcurrentMap<ByteBuffer, byte[]> preimagesByHash = new ConcurrentHashMap<>();
+    private final Map<ByteBuffer, byte[]> preimagesByHash = Collections.synchronizedMap(
+            new LinkedHashMap<>(16, 0.75f, false) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<ByteBuffer, byte[]> eldest) {
+                    return size() > MAX_PREIMAGE_ENTRIES;
+                }
+            });
 
     public TestModeLightningBackend() {
         this.random = new SecureRandom();
@@ -67,19 +75,15 @@ public final class TestModeLightningBackend implements LightningBackend {
     @Override
     public Invoice lookupInvoice(byte[] paymentHash) {
         var preimage = preimagesByHash.get(ByteBuffer.wrap(paymentHash));
-        if (preimage == null) {
-            // Fallback for payment hashes we didn't create (e.g., test-minted macaroons)
-            preimage = new byte[HASH_BYTES];
-            random.nextBytes(preimage);
-        }
 
         var now = Instant.now();
+        var status = preimage != null ? InvoiceStatus.SETTLED : InvoiceStatus.PENDING;
         return new Invoice(
                 paymentHash,
                 "lntb0test" + HexFormat.of().formatHex(paymentHash, 0, 4),
                 1,
                 null,
-                InvoiceStatus.SETTLED,
+                status,
                 preimage,
                 now.minus(DEFAULT_EXPIRY),
                 now.plus(DEFAULT_EXPIRY)

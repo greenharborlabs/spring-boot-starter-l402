@@ -37,7 +37,22 @@ public record L402Challenge(Macaroon macaroon, String bolt11Invoice, long priceS
      */
     public String toWwwAuthenticateHeader() {
         String macaroonBase64 = Base64.getEncoder().encodeToString(MacaroonSerializer.serializeV2(macaroon));
-        return "L402 macaroon=\"" + macaroonBase64 + "\", invoice=\"" + bolt11Invoice + "\"";
+        return "L402 macaroon=\"" + macaroonBase64 + "\", invoice=\"" + sanitizeBolt11ForHeader(bolt11Invoice) + "\"";
+    }
+
+    /**
+     * Strips characters from a bolt11 string that could enable HTTP header injection
+     * (CRLF) or break the WWW-Authenticate header format (double quotes).
+     */
+    private static String sanitizeBolt11ForHeader(String bolt11) {
+        var sb = new StringBuilder(bolt11.length());
+        for (int i = 0; i < bolt11.length(); i++) {
+            char c = bolt11.charAt(i);
+            if (c != '"' && c != '\r' && c != '\n') {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
     }
 
     /**

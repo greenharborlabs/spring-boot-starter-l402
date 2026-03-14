@@ -61,14 +61,15 @@ class TestModeLightningBackendTest {
     }
 
     @Test
-    @DisplayName("lookupInvoice works with arbitrary 32-byte hash input")
-    void lookupInvoiceAcceptsArbitraryHash() {
+    @DisplayName("lookupInvoice returns PENDING with null preimage for unknown hash")
+    void lookupInvoiceReturnsPendingForUnknownHash() {
         var hash = new byte[32];
         hash[0] = 0x42;
 
         var result = backend.lookupInvoice(hash);
 
-        assertThat(result.status()).isEqualTo(InvoiceStatus.SETTLED);
+        assertThat(result.status()).isEqualTo(InvoiceStatus.PENDING);
+        assertThat(result.preimage()).isNull();
         assertThat(result.paymentHash()).isEqualTo(hash);
     }
 

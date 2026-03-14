@@ -8,7 +8,7 @@ public enum ErrorCode {
     INVALID_SERVICE(401),
     REVOKED_CREDENTIAL(401),
     LIGHTNING_UNAVAILABLE(503),
-    MALFORMED_HEADER(402);
+    MALFORMED_HEADER(400);
 
     private final int httpStatus;
 

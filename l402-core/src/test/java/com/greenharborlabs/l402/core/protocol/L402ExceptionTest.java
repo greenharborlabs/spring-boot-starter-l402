@@ -64,9 +64,9 @@ class L402ExceptionTest {
         }
 
         @Test
-        @DisplayName("MALFORMED_HEADER maps to HTTP 402")
-        void malformedHeaderMapsTo402() {
-            assertThat(ErrorCode.MALFORMED_HEADER.getHttpStatus()).isEqualTo(402);
+        @DisplayName("MALFORMED_HEADER maps to HTTP 400")
+        void malformedHeaderMapsTo400() {
+            assertThat(ErrorCode.MALFORMED_HEADER.getHttpStatus()).isEqualTo(400);
         }
 
         @ParameterizedTest

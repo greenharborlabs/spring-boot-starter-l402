@@ -70,11 +70,10 @@ public final class FileBasedRootKeyStore implements RootKeyStore {
         lock.writeLock().lock();
         try {
             writeKeyFile(hexKeyId, rootKey);
+            cache.put(hexKeyId, rootKey.clone());
         } finally {
             lock.writeLock().unlock();
         }
-
-        cache.put(hexKeyId, rootKey.clone());
 
         return new GenerationResult(rootKey, tokenId);
     }
@@ -112,11 +111,10 @@ public final class FileBasedRootKeyStore implements RootKeyStore {
         String hexKeyId = HEX.formatHex(keyId);
         Path keyFile = resolveKeyFile(hexKeyId);
 
-        cache.remove(hexKeyId);
-
         lock.writeLock().lock();
         try {
             Files.deleteIfExists(keyFile);
+            cache.remove(hexKeyId);
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to revoke root key: " + hexKeyId, e);
         } finally {

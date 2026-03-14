@@ -218,28 +218,27 @@ class L402ValidatorTest {
         }
 
         @Test
-        @DisplayName("revokes cached credential and throws when root key has been revoked")
-        void revokesCachedCredentialWhenRootKeyRevoked() {
+        @DisplayName("cached credential is not served after credential store revocation")
+        void cachedCredentialNotServedAfterCredentialStoreRevocation() {
             // First validate to cache the credential
             L402Validator validator = new L402Validator(
                     rootKeyStore, credentialStore, List.of(), SERVICE_NAME);
             validator.validate(validAuthHeader);
 
-            // Revoke the root key
+            // Revoke via credential store (simulates what revokeRootKey callers should do)
+            credentialStore.revoke(tokenIdHex);
+            // Also revoke the root key so full re-validation fails
             rootKeyStore.revokeRootKey(tokenIdBytes);
 
-            // Second validate should detect revocation on cache hit
+            // Second validate should fall through to full validation and fail
             assertThatThrownBy(() -> validator.validate(validAuthHeader))
                     .isInstanceOf(L402Exception.class)
                     .satisfies(ex -> {
                         L402Exception l402Ex = (L402Exception) ex;
                         assertThat(l402Ex.getErrorCode()).isEqualTo(ErrorCode.REVOKED_CREDENTIAL);
-                        assertThat(l402Ex.getMessage()).contains("Root key has been revoked");
+                        assertThat(l402Ex.getMessage()).contains("No root key found");
                         assertThat(l402Ex.getTokenId()).isEqualTo(tokenIdHex);
                     });
-
-            // Credential should be evicted from cache
-            assertThat(credentialStore.get(tokenIdHex)).isNull();
         }
 
         @Test

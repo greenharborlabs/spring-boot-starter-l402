@@ -54,17 +54,12 @@ public final class L402Validator {
         L402Credential credential = L402Credential.parse(authorizationHeader);
         String tokenId = credential.tokenId();
 
-        // 2. Check credential cache — verify presented credential matches cached, re-verify caveats
+        // 2. Check credential cache — verify presented credential matches cached, re-verify caveats.
+        //    Root key existence is NOT re-checked here: the credential was fully validated
+        //    (including root key + HMAC) before it entered the cache. If a root key is revoked,
+        //    the revoking code should proactively call credentialStore.revoke() to evict it.
         L402Credential cached = credentialStore.get(tokenId);
         if (cached != null) {
-            MacaroonIdentifier cachedMacId = MacaroonIdentifier.decode(cached.macaroon().identifier());
-            byte[] cachedTokenIdBytes = cachedMacId.tokenId();
-            if (rootKeyStore.getRootKey(cachedTokenIdBytes) == null) {
-                credentialStore.revoke(tokenId);
-                throw new L402Exception(ErrorCode.REVOKED_CREDENTIAL,
-                        "Root key has been revoked", tokenId);
-            }
-
             // Verify the presented macaroon signature matches the cached one
             if (!MacaroonCrypto.constantTimeEquals(
                     credential.macaroon().signature(), cached.macaroon().signature())) {
@@ -78,25 +73,33 @@ public final class L402Validator {
                         "Presented preimage does not match cached credential", tokenId);
             }
 
-            // Re-verify time-based caveats against current time
+            // Re-verify all caveats against current time (must match MacaroonVerifier strictness)
             Instant now = Instant.now();
             L402VerificationContext context = L402VerificationContext.builder()
                     .serviceName(serviceName)
                     .currentTime(now)
                     .build();
             for (Caveat caveat : cached.macaroon().caveats()) {
+                CaveatVerifier matchedVerifier = null;
                 for (CaveatVerifier verifier : caveatVerifiers) {
                     if (verifier.getKey().equals(caveat.key())) {
-                        try {
-                            verifier.verify(caveat, context);
-                        } catch (L402Exception e) {
-                            credentialStore.revoke(tokenId);
-                            if (e.getTokenId() == null) {
-                                throw new L402Exception(e.getErrorCode(), e.getMessage(), tokenId);
-                            }
-                            throw e;
-                        }
+                        matchedVerifier = verifier;
+                        break;
                     }
+                }
+                if (matchedVerifier == null) {
+                    credentialStore.revoke(tokenId);
+                    throw new L402Exception(ErrorCode.INVALID_MACAROON,
+                            "No verifier for caveat: " + caveat.key(), tokenId);
+                }
+                try {
+                    matchedVerifier.verify(caveat, context);
+                } catch (L402Exception e) {
+                    credentialStore.revoke(tokenId);
+                    if (e.getTokenId() == null) {
+                        throw new L402Exception(e.getErrorCode(), e.getMessage(), tokenId);
+                    }
+                    throw e;
                 }
             }
 

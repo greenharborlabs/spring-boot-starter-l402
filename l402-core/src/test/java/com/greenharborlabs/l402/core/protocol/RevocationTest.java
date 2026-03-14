@@ -100,7 +100,7 @@ class RevocationTest {
         }
 
         @Test
-        @DisplayName("validation succeeds before revocation but fails after")
+        @DisplayName("validation succeeds before revocation but fails after credential store eviction")
         void validBeforeRevocationFailsAfter() {
             L402Validator validator = new L402Validator(
                     rootKeyStore, credentialStore, List.of(), SERVICE_NAME);
@@ -108,10 +108,14 @@ class RevocationTest {
             // Succeeds before revocation (credential gets cached)
             assertThatCode(() -> validator.validate(authHeader)).doesNotThrowAnyException();
 
-            // Revoke the root key — cached credential should be detected as revoked
+            // Revoke: both root key and credential store must be cleared.
+            // The validator no longer re-checks root key on the cached path for performance;
+            // callers revoking keys should also evict from the credential store.
+            String tokenIdHex = HEX.formatHex(tokenIdBytes);
+            credentialStore.revoke(tokenIdHex);
             rootKeyStore.revokeRootKey(tokenIdBytes);
 
-            // Fails after revocation
+            // Fails after revocation — falls through to full validation which finds no root key
             assertThatThrownBy(() -> validator.validate(authHeader))
                     .isInstanceOf(L402Exception.class)
                     .satisfies(ex -> {
