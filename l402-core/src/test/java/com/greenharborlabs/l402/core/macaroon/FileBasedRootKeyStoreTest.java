@@ -49,7 +49,7 @@ class FileBasedRootKeyStoreTest {
         void returnsThirtyTwoBytes() {
             RootKeyStore.GenerationResult result = store.generateRootKey();
 
-            assertThat(result.rootKey()).isNotNull().hasSize(KEY_LENGTH);
+            assertThat(result.rootKey().value()).isNotNull().hasSize(KEY_LENGTH);
         }
 
         @Test
@@ -140,7 +140,7 @@ class FileBasedRootKeyStoreTest {
             byte[] unknownKeyId = new byte[KEY_LENGTH];
             new SecureRandom().nextBytes(unknownKeyId);
 
-            byte[] result = store.getRootKey(unknownKeyId);
+            SensitiveBytes result = store.getRootKey(unknownKeyId);
 
             assertThat(result).isNull();
         }
@@ -149,10 +149,10 @@ class FileBasedRootKeyStoreTest {
         @DisplayName("returns same key that was generated")
         void returnsSameKeyThatWasGenerated() {
             RootKeyStore.GenerationResult result = store.generateRootKey();
-            byte[] key = result.rootKey();
+            byte[] key = result.rootKey().value();
             byte[] keyId = result.tokenId();
 
-            byte[] retrieved = store.getRootKey(keyId);
+            byte[] retrieved = store.getRootKey(keyId).value();
 
             assertThat(retrieved).isEqualTo(key);
         }
@@ -161,13 +161,13 @@ class FileBasedRootKeyStoreTest {
         @DisplayName("disk-read path returns defensive copy that callers can safely mutate")
         void diskReadPathReturnsDefensiveCopy() {
             RootKeyStore.GenerationResult result = store.generateRootKey();
-            byte[] key = result.rootKey();
+            byte[] key = result.rootKey().value();
             byte[] keyId = result.tokenId();
 
             // Fresh store instance has an empty cache, so getRootKey hits the disk path
             FileBasedRootKeyStore freshStore = new FileBasedRootKeyStore(tempDir);
 
-            byte[] firstRead = freshStore.getRootKey(keyId);
+            byte[] firstRead = freshStore.getRootKey(keyId).value();
             assertThat(firstRead).isEqualTo(key);
 
             // Mutate the returned array — should not affect future reads
@@ -175,7 +175,7 @@ class FileBasedRootKeyStoreTest {
 
             // Second read from yet another fresh store (empty cache, disk path again)
             FileBasedRootKeyStore anotherFreshStore = new FileBasedRootKeyStore(tempDir);
-            byte[] secondRead = anotherFreshStore.getRootKey(keyId);
+            byte[] secondRead = anotherFreshStore.getRootKey(keyId).value();
 
             assertThat(secondRead).isEqualTo(key);
             assertThat(secondRead).isNotEqualTo(firstRead);
@@ -185,13 +185,13 @@ class FileBasedRootKeyStoreTest {
         @DisplayName("reads back correctly from a fresh store instance over same directory")
         void readsBackFromFreshInstance() {
             RootKeyStore.GenerationResult result = store.generateRootKey();
-            byte[] key = result.rootKey();
+            byte[] key = result.rootKey().value();
             byte[] keyId = result.tokenId();
 
             // Create a new store pointing at the same directory
             FileBasedRootKeyStore freshStore = new FileBasedRootKeyStore(tempDir);
 
-            byte[] retrieved = freshStore.getRootKey(keyId);
+            byte[] retrieved = freshStore.getRootKey(keyId).value();
 
             assertThat(retrieved).isEqualTo(key);
         }
@@ -275,7 +275,7 @@ class FileBasedRootKeyStoreTest {
             // Even if the raw bytes represent "../../", the hex encoding is safe
             byte[] bytesOfTraversal = "../../etc/passwd".getBytes();
             // This should not throw because HEX.formatHex produces [0-9a-f] only
-            byte[] result = store.getRootKey(bytesOfTraversal);
+            SensitiveBytes result = store.getRootKey(bytesOfTraversal);
             assertThat(result).isNull(); // key doesn't exist, but no exception
         }
     }
@@ -295,12 +295,12 @@ class FileBasedRootKeyStoreTest {
             RootKeyStore.GenerationResult r3 = boundedStore.generateRootKey();
 
             // r1 should have been evicted from cache, but its file still exists
-            byte[] retrieved = boundedStore.getRootKey(r1.tokenId());
-            assertThat(retrieved).isEqualTo(r1.rootKey());
+            byte[] retrieved = boundedStore.getRootKey(r1.tokenId()).value();
+            assertThat(retrieved).isEqualTo(r1.rootKey().value());
 
             // r2 and r3 should also be retrievable
-            assertThat(boundedStore.getRootKey(r2.tokenId())).isEqualTo(r2.rootKey());
-            assertThat(boundedStore.getRootKey(r3.tokenId())).isEqualTo(r3.rootKey());
+            assertThat(boundedStore.getRootKey(r2.tokenId()).value()).isEqualTo(r2.rootKey().value());
+            assertThat(boundedStore.getRootKey(r3.tokenId()).value()).isEqualTo(r3.rootKey().value());
         }
 
         @Test
@@ -325,13 +325,13 @@ class FileBasedRootKeyStoreTest {
     class GenerationResultEquality {
 
         @Test
-        @DisplayName("equal when both byte[] fields have same content")
+        @DisplayName("equal when both fields have same content")
         void equalWhenSameContent() {
             byte[] rootKey = {1, 2, 3, 4};
             byte[] tokenId = {5, 6, 7, 8};
 
-            var a = new RootKeyStore.GenerationResult(rootKey, tokenId);
-            var b = new RootKeyStore.GenerationResult(rootKey.clone(), tokenId.clone());
+            var a = new RootKeyStore.GenerationResult(new SensitiveBytes(rootKey.clone()), tokenId);
+            var b = new RootKeyStore.GenerationResult(new SensitiveBytes(rootKey.clone()), tokenId.clone());
 
             assertThat(a).isEqualTo(b);
             assertThat(b).isEqualTo(a);
@@ -340,7 +340,7 @@ class FileBasedRootKeyStoreTest {
         @Test
         @DisplayName("identity equality")
         void identityEquality() {
-            var result = new RootKeyStore.GenerationResult(new byte[]{1}, new byte[]{2});
+            var result = new RootKeyStore.GenerationResult(new SensitiveBytes(new byte[]{1}), new byte[]{2});
             assertThat(result).isEqualTo(result);
         }
 
@@ -348,8 +348,8 @@ class FileBasedRootKeyStoreTest {
         @DisplayName("not equal when rootKey differs")
         void notEqualWhenRootKeyDiffers() {
             byte[] tokenId = {5, 6, 7, 8};
-            var a = new RootKeyStore.GenerationResult(new byte[]{1, 2, 3}, tokenId);
-            var b = new RootKeyStore.GenerationResult(new byte[]{9, 9, 9}, tokenId.clone());
+            var a = new RootKeyStore.GenerationResult(new SensitiveBytes(new byte[]{1, 2, 3}), tokenId);
+            var b = new RootKeyStore.GenerationResult(new SensitiveBytes(new byte[]{9, 9, 9}), tokenId.clone());
 
             assertThat(a).isNotEqualTo(b);
         }
@@ -358,8 +358,8 @@ class FileBasedRootKeyStoreTest {
         @DisplayName("not equal when tokenId differs")
         void notEqualWhenTokenIdDiffers() {
             byte[] rootKey = {1, 2, 3};
-            var a = new RootKeyStore.GenerationResult(rootKey, new byte[]{5, 6, 7});
-            var b = new RootKeyStore.GenerationResult(rootKey.clone(), new byte[]{9, 9, 9});
+            var a = new RootKeyStore.GenerationResult(new SensitiveBytes(rootKey.clone()), new byte[]{5, 6, 7});
+            var b = new RootKeyStore.GenerationResult(new SensitiveBytes(rootKey.clone()), new byte[]{9, 9, 9});
 
             assertThat(a).isNotEqualTo(b);
         }
@@ -367,14 +367,14 @@ class FileBasedRootKeyStoreTest {
         @Test
         @DisplayName("not equal to null")
         void notEqualToNull() {
-            var result = new RootKeyStore.GenerationResult(new byte[]{1}, new byte[]{2});
+            var result = new RootKeyStore.GenerationResult(new SensitiveBytes(new byte[]{1}), new byte[]{2});
             assertThat(result).isNotEqualTo(null);
         }
 
         @Test
         @DisplayName("not equal to different type")
         void notEqualToDifferentType() {
-            var result = new RootKeyStore.GenerationResult(new byte[]{1}, new byte[]{2});
+            var result = new RootKeyStore.GenerationResult(new SensitiveBytes(new byte[]{1}), new byte[]{2});
             assertThat(result).isNotEqualTo("not a GenerationResult");
         }
 
@@ -384,8 +384,8 @@ class FileBasedRootKeyStoreTest {
             byte[] rootKey = {10, 20, 30};
             byte[] tokenId = {40, 50, 60};
 
-            var a = new RootKeyStore.GenerationResult(rootKey, tokenId);
-            var b = new RootKeyStore.GenerationResult(rootKey.clone(), tokenId.clone());
+            var a = new RootKeyStore.GenerationResult(new SensitiveBytes(rootKey.clone()), tokenId);
+            var b = new RootKeyStore.GenerationResult(new SensitiveBytes(rootKey.clone()), tokenId.clone());
 
             assertThat(a).isEqualTo(b);
             assertThat(a.hashCode()).isEqualTo(b.hashCode());
@@ -394,8 +394,8 @@ class FileBasedRootKeyStoreTest {
         @Test
         @DisplayName("hashCode differs for different content (not guaranteed but expected)")
         void hashCodeDiffersForDifferentContent() {
-            var a = new RootKeyStore.GenerationResult(new byte[]{1, 2, 3}, new byte[]{4, 5, 6});
-            var b = new RootKeyStore.GenerationResult(new byte[]{7, 8, 9}, new byte[]{10, 11, 12});
+            var a = new RootKeyStore.GenerationResult(new SensitiveBytes(new byte[]{1, 2, 3}), new byte[]{4, 5, 6});
+            var b = new RootKeyStore.GenerationResult(new SensitiveBytes(new byte[]{7, 8, 9}), new byte[]{10, 11, 12});
 
             // Not strictly required by contract, but for these inputs it should differ
             assertThat(a.hashCode()).isNotEqualTo(b.hashCode());
@@ -411,7 +411,7 @@ class FileBasedRootKeyStoreTest {
         void concurrentReadWriteSafe() throws InterruptedException {
             // Pre-generate a key to read concurrently
             RootKeyStore.GenerationResult genResult = store.generateRootKey();
-            byte[] key = genResult.rootKey();
+            byte[] key = genResult.rootKey().value();
             byte[] keyId = genResult.tokenId();
 
             int threadCount = 32;
@@ -427,8 +427,8 @@ class FileBasedRootKeyStoreTest {
                         startLatch.await();
                         if (index % 2 == 0) {
                             // Readers
-                            byte[] retrieved = store.getRootKey(keyId);
-                            if (retrieved != null && !java.util.Arrays.equals(retrieved, key)) {
+                            SensitiveBytes retrieved = store.getRootKey(keyId);
+                            if (retrieved != null && !java.util.Arrays.equals(retrieved.value(), key)) {
                                 errors.add("Corrupted read at index " + index);
                             }
                         } else {

@@ -105,7 +105,7 @@ class L402SecurityFilterRealStoreTest {
 
         // Use the REAL InMemoryRootKeyStore to generate a root key and tokenId
         RootKeyStore.GenerationResult genResult = rootKeyStore.generateRootKey();
-        byte[] rootKey = genResult.rootKey();
+        byte[] rootKey = genResult.rootKey().value();
         byte[] tokenId = genResult.tokenId();
 
         // Mint a macaroon using the real root key with service and expiry caveats
@@ -137,11 +137,11 @@ class L402SecurityFilterRealStoreTest {
     void generationResultTokenIdIsConsistentWithGetRootKey() throws Exception {
         // Generate via the real store
         RootKeyStore.GenerationResult genResult = rootKeyStore.generateRootKey();
-        byte[] rootKey = genResult.rootKey();
+        byte[] rootKey = genResult.rootKey().value();
         byte[] tokenId = genResult.tokenId();
 
         // Verify the store can look up the key by the returned tokenId
-        byte[] retrieved = rootKeyStore.getRootKey(tokenId);
+        byte[] retrieved = rootKeyStore.getRootKey(tokenId).value();
         org.assertj.core.api.Assertions.assertThat(retrieved).isEqualTo(rootKey);
     }
 

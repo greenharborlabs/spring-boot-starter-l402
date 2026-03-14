@@ -10,6 +10,7 @@ import com.greenharborlabs.l402.core.macaroon.MacaroonIdentifier;
 import com.greenharborlabs.l402.core.macaroon.MacaroonVerificationException;
 import com.greenharborlabs.l402.core.macaroon.MacaroonVerifier;
 import com.greenharborlabs.l402.core.macaroon.RootKeyStore;
+import com.greenharborlabs.l402.core.macaroon.SensitiveBytes;
 
 import java.time.Instant;
 import java.util.List;
@@ -111,13 +112,19 @@ public final class L402Validator {
         byte[] tokenIdBytes = macId.tokenId();
 
         // 4. Look up root key
-        byte[] rootKey = rootKeyStore.getRootKey(tokenIdBytes);
-        if (rootKey == null) {
+        SensitiveBytes rootKeySb = rootKeyStore.getRootKey(tokenIdBytes);
+        if (rootKeySb == null) {
             throw new L402Exception(ErrorCode.REVOKED_CREDENTIAL,
                     "No root key found for token", tokenId);
         }
 
         // 5. Verify macaroon signature (caveat verification happens inside)
+        byte[] rootKey = rootKeySb.value();
+        try {
+            rootKeySb.close();
+        } catch (Exception _) {
+            // SensitiveBytes.close() never throws
+        }
         Instant now = Instant.now();
         L402VerificationContext context = L402VerificationContext.builder()
                 .serviceName(serviceName)

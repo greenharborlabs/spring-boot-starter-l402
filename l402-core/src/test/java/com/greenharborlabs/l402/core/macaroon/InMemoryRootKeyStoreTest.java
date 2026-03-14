@@ -38,7 +38,7 @@ class InMemoryRootKeyStoreTest {
         void returnsThirtyTwoBytes() {
             RootKeyStore.GenerationResult result = store.generateRootKey();
 
-            assertThat(result.rootKey()).isNotNull().hasSize(KEY_LENGTH);
+            assertThat(result.rootKey().value()).isNotNull().hasSize(KEY_LENGTH);
         }
 
         @Test
@@ -47,14 +47,14 @@ class InMemoryRootKeyStoreTest {
             RootKeyStore.GenerationResult result1 = store.generateRootKey();
             RootKeyStore.GenerationResult result2 = store.generateRootKey();
 
-            assertThat(result1.rootKey()).isNotEqualTo(result2.rootKey());
+            assertThat(result1.rootKey().value()).isNotEqualTo(result2.rootKey().value());
         }
 
         @Test
         @DisplayName("returned key is not all zeros")
         void keyIsNotAllZeros() {
             RootKeyStore.GenerationResult result = store.generateRootKey();
-            byte[] key = result.rootKey();
+            byte[] key = result.rootKey().value();
 
             boolean allZeros = true;
             for (byte b : key) {
@@ -85,7 +85,7 @@ class InMemoryRootKeyStoreTest {
             byte[] unknownKeyId = new byte[KEY_LENGTH];
             new SecureRandom().nextBytes(unknownKeyId);
 
-            byte[] result = store.getRootKey(unknownKeyId);
+            SensitiveBytes result = store.getRootKey(unknownKeyId);
 
             assertThat(result).isNull();
         }
@@ -94,10 +94,10 @@ class InMemoryRootKeyStoreTest {
         @DisplayName("returns same key bytes that were generated for a given keyId")
         void returnsSameKeyForKnownKeyId() {
             RootKeyStore.GenerationResult result = store.generateRootKey();
-            byte[] key = result.rootKey();
+            byte[] key = result.rootKey().value();
             byte[] keyId = result.tokenId();
 
-            byte[] retrieved = store.getRootKey(keyId);
+            byte[] retrieved = store.getRootKey(keyId).value();
 
             assertThat(retrieved).isEqualTo(key);
         }
@@ -108,13 +108,13 @@ class InMemoryRootKeyStoreTest {
             RootKeyStore.GenerationResult result = store.generateRootKey();
             byte[] keyId = result.tokenId();
 
-            byte[] retrieved1 = store.getRootKey(keyId);
-            byte[] retrieved2 = store.getRootKey(keyId);
+            byte[] retrieved1 = store.getRootKey(keyId).value();
+            byte[] retrieved2 = store.getRootKey(keyId).value();
 
             assertThat(retrieved1).isEqualTo(retrieved2);
             // Mutating the returned array should not affect the stored key
             retrieved1[0] = (byte) ~retrieved1[0];
-            byte[] retrieved3 = store.getRootKey(keyId);
+            byte[] retrieved3 = store.getRootKey(keyId).value();
             assertThat(retrieved3).isEqualTo(retrieved2);
         }
     }
@@ -148,17 +148,17 @@ class InMemoryRootKeyStoreTest {
         @DisplayName("revocation does not affect other keys")
         void revocationDoesNotAffectOtherKeys() {
             RootKeyStore.GenerationResult result1 = store.generateRootKey();
-            byte[] key1 = result1.rootKey();
+            byte[] key1 = result1.rootKey().value();
             byte[] keyId1 = result1.tokenId();
 
             RootKeyStore.GenerationResult result2 = store.generateRootKey();
-            byte[] key2 = result2.rootKey();
+            byte[] key2 = result2.rootKey().value();
             byte[] keyId2 = result2.tokenId();
 
             store.revokeRootKey(keyId1);
 
             assertThat(store.getRootKey(keyId1)).isNull();
-            assertThat(store.getRootKey(keyId2)).isEqualTo(key2);
+            assertThat(store.getRootKey(keyId2).value()).isEqualTo(key2);
         }
     }
 
@@ -178,7 +178,7 @@ class InMemoryRootKeyStoreTest {
                 executor.submit(() -> {
                     try {
                         RootKeyStore.GenerationResult result = store.generateRootKey();
-                        hexKeys.add(HEX.formatHex(result.rootKey()));
+                        hexKeys.add(HEX.formatHex(result.rootKey().value()));
                     } finally {
                         latch.countDown();
                     }

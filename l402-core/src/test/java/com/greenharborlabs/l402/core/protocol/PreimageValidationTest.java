@@ -50,12 +50,13 @@ class PreimageValidationTest {
             RANDOM.nextBytes(key);
             byte[] tokenId = new byte[32];
             RANDOM.nextBytes(tokenId);
-            return new GenerationResult(key, tokenId);
+            return new GenerationResult(new com.greenharborlabs.l402.core.macaroon.SensitiveBytes(key.clone()), tokenId);
         }
 
         @Override
-        public byte[] getRootKey(byte[] keyId) {
-            return rootKeyMap.get(HEX.formatHex(keyId));
+        public com.greenharborlabs.l402.core.macaroon.SensitiveBytes getRootKey(byte[] keyId) {
+            byte[] stored = rootKeyMap.get(HEX.formatHex(keyId));
+            return stored == null ? null : new com.greenharborlabs.l402.core.macaroon.SensitiveBytes(stored.clone());
         }
 
         @Override

@@ -2,9 +2,11 @@ package com.greenharborlabs.l402.core.macaroon;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import javax.security.auth.DestroyFailedException;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
+import java.util.logging.Logger;
 
 /**
  * Cryptographic primitives for macaroon operations.
@@ -12,6 +14,7 @@ import java.security.NoSuchAlgorithmException;
  */
 public final class MacaroonCrypto {
 
+    private static final Logger LOG = Logger.getLogger(MacaroonCrypto.class.getName());
     private static final String HMAC_SHA256 = "HmacSHA256";
     private static final byte[] GENERATOR_KEY = "macaroons-key-generator".getBytes(StandardCharsets.UTF_8);
 
@@ -26,16 +29,44 @@ public final class MacaroonCrypto {
     }
 
     /**
+     * Derives a macaroon signing key from a {@link SensitiveBytes} root key.
+     * The result is wrapped in a new {@link SensitiveBytes} instance.
+     */
+    public static SensitiveBytes deriveKey(SensitiveBytes rootKey) {
+        byte[] derived = deriveKey(rootKey.value());
+        return new SensitiveBytes(derived);
+    }
+
+    /**
      * Computes HMAC-SHA256(key, data).
+     * The {@link SecretKeySpec} is destroyed in a finally block to limit key lifetime in memory.
      */
     public static byte[] hmac(byte[] key, byte[] data) {
         try {
             Mac mac = Mac.getInstance(HMAC_SHA256);
-            mac.init(new SecretKeySpec(key, HMAC_SHA256));
-            return mac.doFinal(data);
+            SecretKeySpec keySpec = new SecretKeySpec(key, HMAC_SHA256);
+            try {
+                mac.init(keySpec);
+                return mac.doFinal(data);
+            } finally {
+                try {
+                    keySpec.destroy();
+                } catch (DestroyFailedException e) {
+                    LOG.warning("SecretKeySpec.destroy() failed: " + e.getMessage());
+                }
+            }
         } catch (NoSuchAlgorithmException | InvalidKeyException e) {
             throw new RuntimeException("HMAC-SHA256 computation failed", e);
         }
+    }
+
+    /**
+     * Computes HMAC-SHA256 using a {@link SensitiveBytes} key.
+     * The key is unwrapped via {@link SensitiveBytes#value()} which returns a defensive copy;
+     * the {@link SecretKeySpec} created from that copy is destroyed in the delegate method.
+     */
+    public static byte[] hmac(SensitiveBytes key, byte[] data) {
+        return hmac(key.value(), data);
     }
 
     /**
@@ -69,5 +100,12 @@ public final class MacaroonCrypto {
      */
     public static byte[] bindForRequest(byte[] rootSig, byte[] dischargeSig) {
         return hmac(rootSig, dischargeSig);
+    }
+
+    /**
+     * Convenience method that delegates to {@link KeyMaterial#zeroize(byte[])}.
+     */
+    public static void zeroize(byte[] data) {
+        KeyMaterial.zeroize(data);
     }
 }

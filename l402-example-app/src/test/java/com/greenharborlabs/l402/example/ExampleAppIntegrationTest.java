@@ -129,7 +129,7 @@ class ExampleAppIntegrationTest {
             // Use the application's RootKeyStore to generate a root key
             // so the filter's validator can look it up by tokenId
             RootKeyStore.GenerationResult genResult = rootKeyStore.generateRootKey();
-            byte[] rootKey = genResult.rootKey();
+            byte[] rootKey = genResult.rootKey().value();
             byte[] tokenId = genResult.tokenId();
 
             // We mint our own macaroon instead of extracting the server-generated one from

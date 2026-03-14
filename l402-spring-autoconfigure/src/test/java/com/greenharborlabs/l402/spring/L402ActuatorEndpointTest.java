@@ -322,12 +322,12 @@ class L402ActuatorEndpointTest {
 
         @Override
         public GenerationResult generateRootKey() {
-            return new GenerationResult(key.clone(), new byte[32]);
+            return new GenerationResult(new com.greenharborlabs.l402.core.macaroon.SensitiveBytes(key.clone()), new byte[32]);
         }
 
         @Override
-        public byte[] getRootKey(byte[] keyId) {
-            return key.clone();
+        public com.greenharborlabs.l402.core.macaroon.SensitiveBytes getRootKey(byte[] keyId) {
+            return new com.greenharborlabs.l402.core.macaroon.SensitiveBytes(key.clone());
         }
 
         @Override

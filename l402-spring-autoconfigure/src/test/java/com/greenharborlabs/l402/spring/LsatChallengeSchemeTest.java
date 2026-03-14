@@ -227,12 +227,12 @@ class LsatChallengeSchemeTest {
         public GenerationResult generateRootKey() {
             byte[] tokenId = new byte[32];
             new SecureRandom().nextBytes(tokenId);
-            return new GenerationResult(rootKey.clone(), tokenId);
+            return new GenerationResult(new com.greenharborlabs.l402.core.macaroon.SensitiveBytes(rootKey.clone()), tokenId);
         }
 
         @Override
-        public byte[] getRootKey(byte[] keyId) {
-            return rootKey.clone();
+        public com.greenharborlabs.l402.core.macaroon.SensitiveBytes getRootKey(byte[] keyId) {
+            return new com.greenharborlabs.l402.core.macaroon.SensitiveBytes(rootKey.clone());
         }
 
         @Override

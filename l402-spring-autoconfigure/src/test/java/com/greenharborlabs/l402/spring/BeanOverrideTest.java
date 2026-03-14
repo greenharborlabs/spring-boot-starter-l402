@@ -144,12 +144,12 @@ class BeanOverrideTest {
 
         @Override
         public GenerationResult generateRootKey() {
-            return new GenerationResult(new byte[32], new byte[32]);
+            return new GenerationResult(new com.greenharborlabs.l402.core.macaroon.SensitiveBytes(new byte[32]), new byte[32]);
         }
 
         @Override
-        public byte[] getRootKey(byte[] keyId) {
-            return new byte[32];
+        public com.greenharborlabs.l402.core.macaroon.SensitiveBytes getRootKey(byte[] keyId) {
+            return new com.greenharborlabs.l402.core.macaroon.SensitiveBytes(new byte[32]);
         }
 
         @Override

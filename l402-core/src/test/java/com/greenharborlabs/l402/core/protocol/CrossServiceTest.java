@@ -46,7 +46,7 @@ class CrossServiceTest {
         credentialStore = new InMemoryCredentialStore();
 
         RootKeyStore.GenerationResult genResult = rootKeyStore.generateRootKey();
-        rootKey = genResult.rootKey();
+        rootKey = genResult.rootKey().value();
         tokenIdBytes = genResult.tokenId();
 
         preimageBytes = new byte[32];

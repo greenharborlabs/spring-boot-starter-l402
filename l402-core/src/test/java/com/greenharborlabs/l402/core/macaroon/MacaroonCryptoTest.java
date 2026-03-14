@@ -9,9 +9,11 @@ import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
 import java.util.Arrays;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class MacaroonCryptoTest {
 
@@ -340,6 +342,75 @@ class MacaroonCryptoTest {
             byte[] reversed = MacaroonCrypto.bindForRequest(sigB, sigA);
 
             assertThat(forward).isNotEqualTo(reversed);
+        }
+    }
+
+    @Nested
+    @DisplayName("SensitiveBytes overloads")
+    class SensitiveBytesOverloads {
+
+        @Test
+        @DisplayName("deriveKey(SensitiveBytes) matches deriveKey(byte[])")
+        void deriveKeyWithSensitiveBytesMatchesByteArray() {
+            byte[] rootKey = new byte[32];
+            new SecureRandom().nextBytes(rootKey);
+            byte[] expected = MacaroonCrypto.deriveKey(rootKey.clone());
+            try (var sb = new SensitiveBytes(rootKey.clone())) {
+                try (var result = MacaroonCrypto.deriveKey(sb)) {
+                    assertThat(result.value()).isEqualTo(expected);
+                }
+            }
+        }
+
+        @Test
+        @DisplayName("hmac(SensitiveBytes, byte[]) matches hmac(byte[], byte[])")
+        void hmacWithSensitiveBytesMatchesByteArray() {
+            byte[] key = new byte[32];
+            new SecureRandom().nextBytes(key);
+            byte[] data = "test-data".getBytes(StandardCharsets.UTF_8);
+            byte[] expected = MacaroonCrypto.hmac(key.clone(), data);
+            try (var sb = new SensitiveBytes(key.clone())) {
+                byte[] result = MacaroonCrypto.hmac(sb, data);
+                assertThat(result).isEqualTo(expected);
+            }
+        }
+
+        @Test
+        @DisplayName("deriveKey(SensitiveBytes) throws ISE when input is destroyed")
+        void deriveKeyThrowsWhenDestroyed() {
+            var sb = new SensitiveBytes(new byte[]{1, 2, 3});
+            sb.close();
+            assertThatThrownBy(() -> MacaroonCrypto.deriveKey(sb))
+                    .isInstanceOf(IllegalStateException.class);
+        }
+
+        @Test
+        @DisplayName("hmac(SensitiveBytes, byte[]) throws ISE when key is destroyed")
+        void hmacThrowsWhenKeyDestroyed() {
+            var sb = new SensitiveBytes(new byte[]{1, 2, 3});
+            sb.close();
+            assertThatThrownBy(() -> MacaroonCrypto.hmac(sb, new byte[]{4, 5}))
+                    .isInstanceOf(IllegalStateException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("zeroize")
+    class Zeroize {
+
+        @Test
+        @DisplayName("delegates to KeyMaterial.zeroize")
+        void zeroizeDelegatesToKeyMaterial() {
+            byte[] data = {1, 2, 3};
+            MacaroonCrypto.zeroize(data);
+            assertThat(data).containsOnly((byte) 0);
+        }
+
+        @Test
+        @DisplayName("handles null without throwing")
+        void zeroizeHandlesNull() {
+            MacaroonCrypto.zeroize(null);
+            // no exception expected
         }
     }
 }

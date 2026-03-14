@@ -72,11 +72,11 @@ public final class FileBasedRootKeyStore implements RootKeyStore {
             lock.writeLock().unlock();
         }
 
-        return new GenerationResult(rootKey, tokenId);
+        return new GenerationResult(new SensitiveBytes(rootKey.clone()), tokenId);
     }
 
     @Override
-    public byte[] getRootKey(byte[] keyId) {
+    public SensitiveBytes getRootKey(byte[] keyId) {
         String hexKeyId = HEX.formatHex(keyId);
         Path keyFile = resolveKeyFile(hexKeyId);
 
@@ -85,7 +85,7 @@ public final class FileBasedRootKeyStore implements RootKeyStore {
         try {
             byte[] cached = cache.get(hexKeyId);
             if (cached != null) {
-                return cached.clone();
+                return new SensitiveBytes(cached.clone());
             }
         } finally {
             lock.readLock().unlock();
@@ -97,7 +97,7 @@ public final class FileBasedRootKeyStore implements RootKeyStore {
             // Double-check after lock promotion
             byte[] cached = cache.get(hexKeyId);
             if (cached != null) {
-                return cached.clone();
+                return new SensitiveBytes(cached.clone());
             }
             if (!Files.exists(keyFile)) {
                 return null;
@@ -105,7 +105,7 @@ public final class FileBasedRootKeyStore implements RootKeyStore {
             String hexContent = Files.readString(keyFile).strip();
             byte[] rootKey = HEX.parseHex(hexContent);
             cache.put(hexKeyId, rootKey.clone());
-            return rootKey.clone();
+            return new SensitiveBytes(rootKey.clone());
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to read root key: " + hexKeyId, e);
         } finally {

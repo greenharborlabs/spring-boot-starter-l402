@@ -283,7 +283,7 @@ public class L402SecurityFilter implements Filter {
 
         // Generate root key and tokenId atomically
         RootKeyStore.GenerationResult generationResult = rootKeyStore.generateRootKey();
-        byte[] rootKey = generationResult.rootKey();
+        byte[] rootKey = generationResult.rootKey().value();
         byte[] tokenId = generationResult.tokenId();
 
         // Resolve effective price: dynamic strategy overrides static annotation value

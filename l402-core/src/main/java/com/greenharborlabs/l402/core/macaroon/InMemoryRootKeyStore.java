@@ -28,14 +28,14 @@ public final class InMemoryRootKeyStore implements RootKeyStore {
         String hexKeyId = HEX.formatHex(tokenId);
         keys.put(hexKeyId, Arrays.copyOf(rootKey, rootKey.length));
 
-        return new GenerationResult(rootKey, tokenId);
+        return new GenerationResult(new SensitiveBytes(rootKey.clone()), tokenId);
     }
 
     @Override
-    public byte[] getRootKey(byte[] keyId) {
+    public SensitiveBytes getRootKey(byte[] keyId) {
         String hexKeyId = HEX.formatHex(keyId);
         byte[] stored = keys.get(hexKeyId);
-        return stored == null ? null : Arrays.copyOf(stored, stored.length);
+        return stored == null ? null : new SensitiveBytes(stored.clone());
     }
 
     @Override
