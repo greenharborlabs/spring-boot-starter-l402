@@ -16,6 +16,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("L402Challenge")
 class L402ChallengeTest {
@@ -85,6 +86,71 @@ class L402ChallengeTest {
         assertThat(deserialized.signature()).isEqualTo(macaroon.signature());
         assertThat(deserialized.location()).isEqualTo(macaroon.location());
         assertThat(deserialized.caveats()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("toWwwAuthenticateHeader rejects bolt11 containing double quote")
+    void headerRejectsBolt11WithDoubleQuote() {
+        Macaroon macaroon = mintTestMacaroon();
+        L402Challenge challenge = new L402Challenge(macaroon, "lnbc100n1p0\"injected", 100, "test");
+
+        assertThatThrownBy(challenge::toWwwAuthenticateHeader)
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("illegal character")
+                .hasMessageContaining("0x22");
+    }
+
+    @Test
+    @DisplayName("toWwwAuthenticateHeader rejects bolt11 containing CR")
+    void headerRejectsBolt11WithCR() {
+        Macaroon macaroon = mintTestMacaroon();
+        L402Challenge challenge = new L402Challenge(macaroon, "lnbc100n1p0\rinjected", 100, "test");
+
+        assertThatThrownBy(challenge::toWwwAuthenticateHeader)
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("illegal character")
+                .hasMessageContaining("0xd");
+    }
+
+    @Test
+    @DisplayName("toWwwAuthenticateHeader rejects bolt11 containing LF")
+    void headerRejectsBolt11WithLF() {
+        Macaroon macaroon = mintTestMacaroon();
+        L402Challenge challenge = new L402Challenge(macaroon, "lnbc100n1p0\ninjected", 100, "test");
+
+        assertThatThrownBy(challenge::toWwwAuthenticateHeader)
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("illegal character")
+                .hasMessageContaining("0xa");
+    }
+
+    @Test
+    @DisplayName("toJsonBody produces valid JSON using JsonEscaper")
+    void toJsonBodyProducesValidJson() {
+        Macaroon macaroon = mintTestMacaroon();
+        L402Challenge challenge = new L402Challenge(macaroon, "lnbc500n1p0test", 500, "A \"special\" service");
+        String json = challenge.toJsonBody();
+
+        assertThat(json).contains("\"code\":402");
+        assertThat(json).contains("\"price_sats\":500");
+        assertThat(json).contains("\"invoice\":\"lnbc500n1p0test\"");
+        // Description with quotes should be escaped
+        assertThat(json).contains("A \\\"special\\\" service");
+    }
+
+    @Test
+    @DisplayName("toJsonBody handles null description")
+    void toJsonBodyHandlesNullDescription() {
+        Macaroon macaroon = mintTestMacaroon();
+        L402Challenge challenge = new L402Challenge(macaroon, "lnbc1test", 1, null);
+        String json = challenge.toJsonBody();
+
+        assertThat(json).contains("\"description\":null");
+    }
+
+    private Macaroon mintTestMacaroon() {
+        MacaroonIdentifier id = new MacaroonIdentifier(0, paymentHash, tokenId);
+        return MacaroonMinter.mint(rootKey, id, null, List.of());
     }
 
     @Test

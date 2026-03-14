@@ -29,37 +29,45 @@ public class LndBackend implements LightningBackend {
 
     @Override
     public Invoice createInvoice(long amountSats, String memo) {
-        var request = Lnrpc.Invoice.newBuilder()
-                .setValue(amountSats)
-                .setMemo(memo)
-                .setExpiry(DEFAULT_EXPIRY_SECONDS)
-                .build();
+        try {
+            var request = Lnrpc.Invoice.newBuilder()
+                    .setValue(amountSats)
+                    .setMemo(memo)
+                    .setExpiry(DEFAULT_EXPIRY_SECONDS)
+                    .build();
 
-        Lnrpc.AddInvoiceResponse addResponse = stub.withDeadlineAfter(5, TimeUnit.SECONDS).addInvoice(request);
+            Lnrpc.AddInvoiceResponse addResponse = stub.withDeadlineAfter(5, TimeUnit.SECONDS).addInvoice(request);
 
-        Instant createdAt = Instant.now();
-        Instant expiresAt = createdAt.plusSeconds(DEFAULT_EXPIRY_SECONDS);
+            Instant createdAt = Instant.now();
+            Instant expiresAt = createdAt.plusSeconds(DEFAULT_EXPIRY_SECONDS);
 
-        return new Invoice(
-                addResponse.getRHash().toByteArray(),
-                addResponse.getPaymentRequest(),
-                amountSats,
-                memo,
-                InvoiceStatus.PENDING,
-                null,
-                createdAt,
-                expiresAt
-        );
+            return new Invoice(
+                    addResponse.getRHash().toByteArray(),
+                    addResponse.getPaymentRequest(),
+                    amountSats,
+                    memo,
+                    InvoiceStatus.PENDING,
+                    null,
+                    createdAt,
+                    expiresAt
+            );
+        } catch (StatusRuntimeException e) {
+            throw new LndException("Failed to create invoice via LND: " + e.getStatus(), e);
+        }
     }
 
     @Override
     public Invoice lookupInvoice(byte[] paymentHash) {
-        var request = Lnrpc.PaymentHash.newBuilder()
-                .setRHash(ByteString.copyFrom(paymentHash))
-                .build();
+        try {
+            var request = Lnrpc.PaymentHash.newBuilder()
+                    .setRHash(ByteString.copyFrom(paymentHash))
+                    .build();
 
-        Lnrpc.Invoice lndInvoice = stub.withDeadlineAfter(5, TimeUnit.SECONDS).lookupInvoice(request);
-        return mapInvoice(lndInvoice);
+            Lnrpc.Invoice lndInvoice = stub.withDeadlineAfter(5, TimeUnit.SECONDS).lookupInvoice(request);
+            return mapInvoice(lndInvoice);
+        } catch (StatusRuntimeException e) {
+            throw new LndException("Failed to lookup invoice via LND: " + e.getStatus(), e);
+        }
     }
 
     @Override

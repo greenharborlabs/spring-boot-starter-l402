@@ -203,6 +203,39 @@ class L402CredentialTest {
         }
 
         @Test
+        @DisplayName("throws MALFORMED_HEADER for macaroon segment containing control characters")
+        void throwsForControlCharsInMacaroon() {
+            String header = "L402 abc\u0001def:" + preimageHex;
+
+            assertThatThrownBy(() -> L402Credential.parse(header))
+                    .isInstanceOf(L402Exception.class)
+                    .extracting(e -> ((L402Exception) e).getErrorCode())
+                    .isEqualTo(ErrorCode.MALFORMED_HEADER);
+        }
+
+        @Test
+        @DisplayName("throws MALFORMED_HEADER for macaroon segment containing whitespace")
+        void throwsForWhitespaceInMacaroon() {
+            String header = "L402 abc def:" + preimageHex;
+
+            assertThatThrownBy(() -> L402Credential.parse(header))
+                    .isInstanceOf(L402Exception.class)
+                    .extracting(e -> ((L402Exception) e).getErrorCode())
+                    .isEqualTo(ErrorCode.MALFORMED_HEADER);
+        }
+
+        @Test
+        @DisplayName("throws MALFORMED_HEADER for macaroon segment containing CRLF")
+        void throwsForCrlfInMacaroon() {
+            String header = "L402 abc\r\ndef:" + preimageHex;
+
+            assertThatThrownBy(() -> L402Credential.parse(header))
+                    .isInstanceOf(L402Exception.class)
+                    .extracting(e -> ((L402Exception) e).getErrorCode())
+                    .isEqualTo(ErrorCode.MALFORMED_HEADER);
+        }
+
+        @Test
         @DisplayName("parses preimage with uppercase hex characters")
         void parsesUppercaseHex() {
             String upperHex = preimageHex.toUpperCase();

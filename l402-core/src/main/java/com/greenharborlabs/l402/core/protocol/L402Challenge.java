@@ -2,6 +2,7 @@ package com.greenharborlabs.l402.core.protocol;
 
 import com.greenharborlabs.l402.core.macaroon.Macaroon;
 import com.greenharborlabs.l402.core.macaroon.MacaroonSerializer;
+import com.greenharborlabs.l402.core.util.JsonEscaper;
 
 import java.util.Base64;
 import java.util.Objects;
@@ -41,18 +42,20 @@ public record L402Challenge(Macaroon macaroon, String bolt11Invoice, long priceS
     }
 
     /**
-     * Strips characters from a bolt11 string that could enable HTTP header injection
-     * (CRLF) or break the WWW-Authenticate header format (double quotes).
+     * Validates that a bolt11 string does not contain characters that could enable
+     * HTTP header injection (CRLF) or break the WWW-Authenticate header format (double quotes).
+     * Throws rather than silently stripping, because a modified bolt11 invoice is unpayable.
      */
     private static String sanitizeBolt11ForHeader(String bolt11) {
-        var sb = new StringBuilder(bolt11.length());
         for (int i = 0; i < bolt11.length(); i++) {
             char c = bolt11.charAt(i);
-            if (c != '"' && c != '\r' && c != '\n') {
-                sb.append(c);
+            if (c == '"' || c == '\r' || c == '\n') {
+                throw new IllegalArgumentException(
+                        "bolt11 invoice contains illegal character at index " + i
+                                + ": 0x" + Integer.toHexString(c));
             }
         }
-        return sb.toString();
+        return bolt11;
     }
 
     /**
@@ -62,31 +65,9 @@ public record L402Challenge(Macaroon macaroon, String bolt11Invoice, long priceS
      * @return a JSON string
      */
     public String toJsonBody() {
-        String escapedDescription = description == null ? "null" : "\"" + escapeJson(description) + "\"";
+        String escapedDescription = description == null ? "null" : "\"" + JsonEscaper.escape(description) + "\"";
         return "{\"code\":402,\"message\":\"Payment required\",\"price_sats\":" + priceSats
                 + ",\"description\":" + escapedDescription
-                + ",\"invoice\":\"" + escapeJson(bolt11Invoice) + "\"}";
-    }
-
-    private static String escapeJson(String value) {
-        var sb = new StringBuilder(value.length());
-        for (int i = 0; i < value.length(); i++) {
-            char c = value.charAt(i);
-            switch (c) {
-                case '"' -> sb.append("\\\"");
-                case '\\' -> sb.append("\\\\");
-                case '\n' -> sb.append("\\n");
-                case '\r' -> sb.append("\\r");
-                case '\t' -> sb.append("\\t");
-                default -> {
-                    if (c < 0x20) {
-                        sb.append(String.format("\\u%04x", (int) c));
-                    } else {
-                        sb.append(c);
-                    }
-                }
-            }
-        }
-        return sb.toString();
+                + ",\"invoice\":\"" + JsonEscaper.escape(bolt11Invoice) + "\"}";
     }
 }

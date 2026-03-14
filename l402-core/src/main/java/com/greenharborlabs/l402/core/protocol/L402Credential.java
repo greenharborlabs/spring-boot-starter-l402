@@ -27,7 +27,7 @@ public record L402Credential(Macaroon macaroon, PaymentPreimage preimage, String
     }
 
     private static final Pattern HEADER_PATTERN =
-            Pattern.compile("(LSAT|L402) ([^:]+):([a-fA-F0-9]{64})");
+            Pattern.compile("(LSAT|L402) ([A-Za-z0-9+/=]+):([a-fA-F0-9]{64})");
     private static final HexFormat HEX = HexFormat.of();
 
     /**
