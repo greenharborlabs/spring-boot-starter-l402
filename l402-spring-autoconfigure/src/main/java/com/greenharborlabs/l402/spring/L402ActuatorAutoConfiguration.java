@@ -8,6 +8,7 @@ import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 
 /**
@@ -16,10 +17,13 @@ import org.springframework.context.annotation.Bean;
  * <p>Activates only when Spring Boot Actuator is on the classpath and the
  * required L402 beans are present. Separated from {@link L402AutoConfiguration}
  * to allow independent conditional activation.
+ *
+ * <p>Can be disabled by setting {@code l402.actuator.enabled=false}.
  */
 @AutoConfiguration(after = L402AutoConfiguration.class)
 @ConditionalOnClass(name = "org.springframework.boot.actuate.endpoint.annotation.Endpoint")
 @ConditionalOnBean(L402EndpointRegistry.class)
+@ConditionalOnProperty(name = "l402.actuator.enabled", havingValue = "true", matchIfMissing = true)
 public class L402ActuatorAutoConfiguration {
 
     @Bean

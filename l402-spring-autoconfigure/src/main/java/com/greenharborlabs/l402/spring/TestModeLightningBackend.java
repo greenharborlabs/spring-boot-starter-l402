@@ -4,20 +4,28 @@ import com.greenharborlabs.l402.core.lightning.Invoice;
 import com.greenharborlabs.l402.core.lightning.InvoiceStatus;
 import com.greenharborlabs.l402.core.lightning.LightningBackend;
 
+import java.nio.ByteBuffer;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 /**
  * Dummy {@link LightningBackend} for test/development mode (R-014).
  *
- * <p>Creates invoices with random payment hashes and fake bolt11 strings.
- * {@link #lookupInvoice(byte[])} always returns {@link InvoiceStatus#SETTLED}.
+ * <p>Creates invoices with valid preimage/paymentHash pairs (where
+ * {@code paymentHash = SHA-256(preimage)}) and fake bolt11 strings.
+ * The preimage is included on the returned {@link Invoice} so the caller can
+ * expose it in test-mode responses, enabling end-to-end testing with curl.
+ * {@link #lookupInvoice(byte[])} always returns {@link InvoiceStatus#SETTLED}
+ * with the correct preimage.
  * {@link #isHealthy()} always returns {@code true}.
  *
  * <p><strong>WARNING:</strong> This backend must never be used in production.
- * Preimage verification is effectively skipped because any 32-byte preimage is accepted.
  */
 public final class TestModeLightningBackend implements LightningBackend {
 
@@ -26,6 +34,7 @@ public final class TestModeLightningBackend implements LightningBackend {
     private static final Duration DEFAULT_EXPIRY = Duration.ofHours(1);
 
     private final SecureRandom random;
+    private final ConcurrentMap<ByteBuffer, byte[]> preimagesByHash = new ConcurrentHashMap<>();
 
     public TestModeLightningBackend() {
         this.random = new SecureRandom();
@@ -34,8 +43,11 @@ public final class TestModeLightningBackend implements LightningBackend {
 
     @Override
     public Invoice createInvoice(long amountSats, String memo) {
-        var paymentHash = new byte[HASH_BYTES];
-        random.nextBytes(paymentHash);
+        var preimage = new byte[HASH_BYTES];
+        random.nextBytes(preimage);
+        var paymentHash = sha256(preimage);
+
+        preimagesByHash.put(ByteBuffer.wrap(paymentHash), preimage.clone());
 
         var bolt11 = "lntb" + amountSats + "test" + HexFormat.of().formatHex(paymentHash, 0, 4);
 
@@ -46,7 +58,7 @@ public final class TestModeLightningBackend implements LightningBackend {
                 amountSats,
                 memo,
                 InvoiceStatus.PENDING,
-                null,
+                preimage,
                 now,
                 now.plus(DEFAULT_EXPIRY)
         );
@@ -54,8 +66,12 @@ public final class TestModeLightningBackend implements LightningBackend {
 
     @Override
     public Invoice lookupInvoice(byte[] paymentHash) {
-        var preimage = new byte[HASH_BYTES];
-        random.nextBytes(preimage);
+        var preimage = preimagesByHash.get(ByteBuffer.wrap(paymentHash));
+        if (preimage == null) {
+            // Fallback for payment hashes we didn't create (e.g., test-minted macaroons)
+            preimage = new byte[HASH_BYTES];
+            random.nextBytes(preimage);
+        }
 
         var now = Instant.now();
         return new Invoice(
@@ -73,5 +89,13 @@ public final class TestModeLightningBackend implements LightningBackend {
     @Override
     public boolean isHealthy() {
         return true;
+    }
+
+    private static byte[] sha256(byte[] input) {
+        try {
+            return MessageDigest.getInstance("SHA-256").digest(input);
+        } catch (NoSuchAlgorithmException e) {
+            throw new AssertionError("SHA-256 not available", e);
+        }
     }
 }

@@ -60,8 +60,17 @@ public class LnbitsBackend implements LightningBackend {
             }
             JsonNode json = objectMapper.readTree(response.body());
 
-            String paymentHashHex = json.get("payment_hash").asText();
-            String bolt11 = json.get("payment_request").asText();
+            JsonNode hashNode = json.get("payment_hash");
+            if (hashNode == null || hashNode.isNull()) {
+                throw new LnbitsException("Missing 'payment_hash' in LNbits create invoice response");
+            }
+            JsonNode bolt11Node = json.get("payment_request");
+            if (bolt11Node == null || bolt11Node.isNull()) {
+                throw new LnbitsException("Missing 'payment_request' in LNbits create invoice response");
+            }
+
+            String paymentHashHex = hashNode.asText();
+            String bolt11 = bolt11Node.asText();
             Instant now = Instant.now();
 
             return new Invoice(
@@ -102,11 +111,28 @@ public class LnbitsBackend implements LightningBackend {
             }
             JsonNode json = objectMapper.readTree(response.body());
 
-            boolean paid = json.get("paid").asBoolean();
-            JsonNode details = json.get("details");
+            JsonNode paidNode = json.get("paid");
+            if (paidNode == null || paidNode.isNull()) {
+                throw new LnbitsException("Missing 'paid' in LNbits lookup response");
+            }
+            boolean paid = paidNode.asBoolean();
 
-            String bolt11 = details.get("bolt11").asText();
-            long amount = details.get("amount").asLong();
+            JsonNode details = json.get("details");
+            if (details == null || details.isNull()) {
+                throw new LnbitsException("Missing 'details' in LNbits lookup response");
+            }
+
+            JsonNode bolt11Node = details.get("bolt11");
+            if (bolt11Node == null || bolt11Node.isNull()) {
+                throw new LnbitsException("Missing 'details.bolt11' in LNbits lookup response");
+            }
+            JsonNode amountNode = details.get("amount");
+            if (amountNode == null || amountNode.isNull()) {
+                throw new LnbitsException("Missing 'details.amount' in LNbits lookup response");
+            }
+
+            String bolt11 = bolt11Node.asText();
+            long amount = amountNode.asLong();
             String memo = details.has("memo") ? details.get("memo").asText() : null;
 
             InvoiceStatus status = paid ? InvoiceStatus.SETTLED : InvoiceStatus.PENDING;

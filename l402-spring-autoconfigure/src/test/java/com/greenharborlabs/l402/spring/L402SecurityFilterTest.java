@@ -348,6 +348,31 @@ class L402SecurityFilterTest {
         }
 
         @Test
+        @DisplayName("valid credential succeeds even when Lightning is down")
+        void validCredentialSucceedsWhenLightningDown() throws Exception {
+            // Lightning is unhealthy (set in @BeforeEach), but valid credentials
+            // should bypass the health check entirely.
+            byte[] preimage = new byte[32];
+            new SecureRandom().nextBytes(preimage);
+            byte[] paymentHash = sha256(preimage);
+            byte[] tokenId = new byte[32];
+            new SecureRandom().nextBytes(tokenId);
+
+            MacaroonIdentifier identifier = new MacaroonIdentifier(0, paymentHash, tokenId);
+            Macaroon macaroon = MacaroonMinter.mint(ROOT_KEY, identifier, null, validCaveats());
+            byte[] serialized = MacaroonSerializer.serializeV2(macaroon);
+            String macaroonBase64 = Base64.getEncoder().encodeToString(serialized);
+            String preimageHex = HEX.formatHex(preimage);
+            String authHeader = "L402 " + macaroonBase64 + ":" + preimageHex;
+
+            mockMvc.perform(get(PROTECTED_PATH)
+                            .header("Authorization", authHeader))
+                    .andExpect(status().isOk())
+                    .andExpect(header().exists("X-L402-Token-Id"))
+                    .andExpect(content().string("protected-content"));
+        }
+
+        @Test
         @DisplayName("unprotected endpoint still works when Lightning is down")
         void publicEndpointStillWorksWhenLightningDown() throws Exception {
             mockMvc.perform(get(PUBLIC_PATH))
@@ -515,6 +540,59 @@ class L402SecurityFilterTest {
             mockMvc.perform(get(PROTECTED_PATH)
                             .header("X-Forwarded-For", "10.0.0.1"))
                     .andExpect(status().isPaymentRequired());
+        }
+    }
+
+    @Nested
+    @DisplayName("bolt11 sanitization")
+    class Bolt11Sanitization {
+
+        @Test
+        @DisplayName("strips header injection chars from bolt11 in WWW-Authenticate and escapes in JSON body")
+        void sanitizesMaliciousBolt11() throws Exception {
+            ((StubLightningBackend) lightningBackend).setHealthy(true);
+
+            // Craft a malicious bolt11 with header injection and JSON breaking characters
+            String maliciousBolt11 = "lnbc100n1p0test\r\nEvil-Header: injected\"\r\nAnother: bad";
+            byte[] paymentHash = new byte[32];
+            new SecureRandom().nextBytes(paymentHash);
+            Instant now = Instant.now();
+            Invoice maliciousInvoice = new Invoice(
+                    paymentHash,
+                    maliciousBolt11,
+                    PRICE_SATS,
+                    "Test invoice",
+                    InvoiceStatus.PENDING,
+                    null,
+                    now,
+                    now.plus(1, ChronoUnit.HOURS)
+            );
+            ((StubLightningBackend) lightningBackend).setNextInvoice(maliciousInvoice);
+
+            var result = mockMvc.perform(get(PROTECTED_PATH))
+                    .andExpect(status().isPaymentRequired())
+                    .andReturn();
+
+            // Verify WWW-Authenticate header has no \r, \n, or " from bolt11
+            String wwwAuth = result.getResponse().getHeader("WWW-Authenticate");
+            assertThat(wwwAuth).isNotNull();
+            // Extract the invoice value from the header
+            String invoiceInHeader = wwwAuth.split("invoice=\"")[1];
+            invoiceInHeader = invoiceInHeader.substring(0, invoiceInHeader.lastIndexOf('"'));
+            // CR, LF, and double-quote must be stripped — these enable header injection
+            assertThat(invoiceInHeader).doesNotContain("\r");
+            assertThat(invoiceInHeader).doesNotContain("\n");
+            assertThat(invoiceInHeader).doesNotContain("\"");
+            // The remaining text should be a continuous string with injection chars removed
+            assertThat(invoiceInHeader).isEqualTo("lnbc100n1p0testEvil-Header: injectedAnother: bad");
+
+            // Verify JSON body has the bolt11 properly escaped (no raw control chars or unescaped quotes)
+            String body = result.getResponse().getContentAsString();
+            // Raw CR/LF must not appear in the JSON body
+            assertThat(body).doesNotContain("\r");
+            assertThat(body).doesNotContain(maliciousBolt11);
+            // The JSON should contain escaped versions of the special chars from bolt11
+            assertThat(body).contains("\\r\\nEvil-Header: injected\\\"\\r\\nAnother: bad");
         }
     }
 

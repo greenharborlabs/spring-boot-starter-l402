@@ -126,7 +126,9 @@ class L402AuthenticationFilterTest {
         filter.doFilterInternal(request, response, filterChain);
 
         assertThat(response.getStatus()).isEqualTo(401);
-        assertThat(response.getContentAsString()).isEqualTo("L402 authentication failed");
+        assertThat(response.getHeader("WWW-Authenticate")).isEqualTo("L402");
+        assertThat(response.getContentType()).isEqualTo("application/json");
+        assertThat(response.getContentAsString()).isEqualTo("{\"error\": \"L402 authentication failed\"}");
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
         verify(filterChain, never()).doFilter(request, response);
     }
@@ -139,6 +141,36 @@ class L402AuthenticationFilterTest {
 
         verify(filterChain).doFilter(request, response);
         verify(authenticationManager, never()).authenticate(any());
+    }
+
+    @Test
+    void extractsUppercaseHexPreimageAndAuthenticates() throws ServletException, IOException {
+        String uppercasePreimage = "A".repeat(64);
+        request.addHeader("Authorization", "L402 " + VALID_MACAROON_B64 + ":" + uppercasePreimage);
+        when(authenticationManager.authenticate(any())).thenReturn(authenticatedResult);
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        ArgumentCaptor<L402AuthenticationToken> captor = ArgumentCaptor.forClass(L402AuthenticationToken.class);
+        verify(authenticationManager).authenticate(captor.capture());
+
+        L402AuthenticationToken unauthToken = captor.getValue();
+        assertThat(unauthToken.getRawPreimage()).isEqualTo(uppercasePreimage);
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isEqualTo(authenticatedResult);
+        verify(filterChain).doFilter(request, response);
+    }
+
+    @Test
+    void extractsMixedCaseHexPreimageAndAuthenticates() throws ServletException, IOException {
+        String mixedCasePreimage = "aAbBcCdD".repeat(8);
+        request.addHeader("Authorization", "L402 " + VALID_MACAROON_B64 + ":" + mixedCasePreimage);
+        when(authenticationManager.authenticate(any())).thenReturn(authenticatedResult);
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        verify(authenticationManager).authenticate(any(L402AuthenticationToken.class));
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isEqualTo(authenticatedResult);
+        verify(filterChain).doFilter(request, response);
     }
 
     @Test

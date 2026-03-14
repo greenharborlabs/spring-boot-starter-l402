@@ -27,13 +27,13 @@ public class ExampleController {
         return new HealthResponse("ok");
     }
 
-    @L402Protected(priceSats = 10)
+    @L402Protected(priceSats = 10, timeoutSeconds = 3600)
     @GetMapping(value = "/data", produces = MediaType.APPLICATION_JSON_VALUE)
     public DataResponse data() {
         return new DataResponse("premium content", Instant.now().toString());
     }
 
-    @L402Protected(priceSats = 50, pricingStrategy = "analysisPricer")
+    @L402Protected(priceSats = 50, timeoutSeconds = 3600, pricingStrategy = "analysisPricer")
     @PostMapping(value = "/analyze", consumes = MediaType.APPLICATION_JSON_VALUE,
             produces = MediaType.APPLICATION_JSON_VALUE)
     public AnalyzeResponse analyze(@RequestBody AnalyzeRequest request) {

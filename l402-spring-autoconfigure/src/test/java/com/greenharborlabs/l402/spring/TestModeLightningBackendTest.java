@@ -5,6 +5,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("TestModeLightningBackend")
@@ -18,8 +21,8 @@ class TestModeLightningBackendTest {
     }
 
     @Test
-    @DisplayName("createInvoice returns PENDING invoice with random 32-byte hash")
-    void createInvoiceReturnsPendingWithRandomHash() {
+    @DisplayName("createInvoice returns PENDING invoice with valid preimage/paymentHash pair")
+    void createInvoiceReturnsPendingWithValidPreimage() throws NoSuchAlgorithmException {
         var invoice = backend.createInvoice(250, "unit test");
 
         assertThat(invoice.paymentHash()).hasSize(32);
@@ -27,9 +30,13 @@ class TestModeLightningBackendTest {
         assertThat(invoice.amountSats()).isEqualTo(250);
         assertThat(invoice.memo()).isEqualTo("unit test");
         assertThat(invoice.status()).isEqualTo(InvoiceStatus.PENDING);
-        assertThat(invoice.preimage()).isNull();
+        assertThat(invoice.preimage()).hasSize(32);
         assertThat(invoice.createdAt()).isNotNull();
         assertThat(invoice.expiresAt()).isAfter(invoice.createdAt());
+
+        // paymentHash must equal SHA-256(preimage)
+        byte[] expectedHash = MessageDigest.getInstance("SHA-256").digest(invoice.preimage());
+        assertThat(invoice.paymentHash()).isEqualTo(expectedHash);
     }
 
     @Test
@@ -42,13 +49,14 @@ class TestModeLightningBackendTest {
     }
 
     @Test
-    @DisplayName("lookupInvoice always returns SETTLED with a 32-byte preimage")
-    void lookupInvoiceAlwaysReturnsSettled() {
+    @DisplayName("lookupInvoice returns SETTLED with the correct preimage for created invoices")
+    void lookupInvoiceReturnsSettledWithCorrectPreimage() {
         var created = backend.createInvoice(50, "lookup");
         var looked = backend.lookupInvoice(created.paymentHash());
 
         assertThat(looked.status()).isEqualTo(InvoiceStatus.SETTLED);
         assertThat(looked.preimage()).hasSize(32);
+        assertThat(looked.preimage()).isEqualTo(created.preimage());
         assertThat(looked.paymentHash()).isEqualTo(created.paymentHash());
     }
 

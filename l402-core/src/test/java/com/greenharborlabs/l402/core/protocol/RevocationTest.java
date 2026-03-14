@@ -105,14 +105,10 @@ class RevocationTest {
             L402Validator validator = new L402Validator(
                     rootKeyStore, credentialStore, List.of(), SERVICE_NAME);
 
-            // Succeeds before revocation
+            // Succeeds before revocation (credential gets cached)
             assertThatCode(() -> validator.validate(authHeader)).doesNotThrowAnyException();
 
-            // Revoke the credential from cache so re-validation is forced
-            String tokenIdHex = HEX.formatHex(tokenIdBytes);
-            credentialStore.revoke(tokenIdHex);
-
-            // Revoke the root key
+            // Revoke the root key — cached credential should be detected as revoked
             rootKeyStore.revokeRootKey(tokenIdBytes);
 
             // Fails after revocation

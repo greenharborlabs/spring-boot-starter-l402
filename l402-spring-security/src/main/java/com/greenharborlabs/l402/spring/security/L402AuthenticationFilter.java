@@ -30,7 +30,7 @@ public final class L402AuthenticationFilter extends OncePerRequestFilter {
 
     private static final String AUTHORIZATION_HEADER = "Authorization";
     private static final Pattern L402_PATTERN =
-            Pattern.compile("(?:LSAT|L402) ([^:]+):([a-f0-9]{64})");
+            Pattern.compile("(?:LSAT|L402) ([^:]+):([a-fA-F0-9]{64})");
 
     private final AuthenticationManager authenticationManager;
 
@@ -74,8 +74,10 @@ public final class L402AuthenticationFilter extends OncePerRequestFilter {
             SecurityContextHolder.setContext(securityContext);
         } catch (AuthenticationException e) {
             SecurityContextHolder.clearContext();
+            response.setHeader("WWW-Authenticate", "L402");
+            response.setContentType("application/json");
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-            response.getWriter().write("L402 authentication failed");
+            response.getWriter().write("{\"error\": \"L402 authentication failed\"}");
             return;
         }
 

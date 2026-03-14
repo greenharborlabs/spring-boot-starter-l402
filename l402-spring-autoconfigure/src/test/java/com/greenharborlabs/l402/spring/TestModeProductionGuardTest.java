@@ -9,16 +9,12 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Verifies that test-mode is rejected when a production profile is active.
+ * Verifies the two-layer test-mode guard (R-014):
  *
- * <p>Per R-014: if any Spring profile named "production" or "prod" is active
- * AND {@code l402.test-mode=true}, the application must fail to start with
- * an {@link IllegalStateException}. This prevents test-mode credentials from
- * accidentally being used in production environments.
- *
- * <p>TDD: this test references {@link TestModeAutoConfiguration} which does
- * not yet exist — it is expected to fail compilation until that class is
- * implemented.
+ * <ol>
+ *   <li><b>Denylist:</b> "production" or "prod" profiles always reject test mode.</li>
+ *   <li><b>Allowlist:</b> at least one of "test", "dev", "local", "development" must be active.</li>
+ * </ol>
  */
 @DisplayName("Test-mode production guard (R-014)")
 class TestModeProductionGuardTest {
@@ -31,6 +27,8 @@ class TestModeProductionGuardTest {
             .withBean(RequestMappingHandlerMapping.class, RequestMappingHandlerMapping::new)
             .withPropertyValues("l402.enabled=true", "l402.test-mode=true");
 
+    // --- Denylist checks ---
+
     @Test
     @DisplayName("test-mode + 'production' profile → IllegalStateException at startup")
     void testModeWithProductionProfileFails() {
@@ -41,7 +39,7 @@ class TestModeProductionGuardTest {
                     assertThat(context.getStartupFailure())
                             .rootCause()
                             .isInstanceOf(IllegalStateException.class)
-                            .hasMessageContaining("test");
+                            .hasMessageContaining("production profiles");
                 });
     }
 
@@ -55,17 +53,106 @@ class TestModeProductionGuardTest {
                     assertThat(context.getStartupFailure())
                             .rootCause()
                             .isInstanceOf(IllegalStateException.class)
-                            .hasMessageContaining("test");
+                            .hasMessageContaining("production profiles");
                 });
     }
 
     @Test
-    @DisplayName("test-mode + non-production profile → context starts successfully")
-    void testModeWithNonProductionProfileSucceeds() {
+    @DisplayName("test-mode + 'production' AND 'dev' profiles → still fails (denylist wins)")
+    void testModeWithProductionAndDevProfilesFails() {
+        contextRunner
+                .withPropertyValues("spring.profiles.active=production,dev")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .rootCause()
+                            .isInstanceOf(IllegalStateException.class)
+                            .hasMessageContaining("production profiles");
+                });
+    }
+
+    // --- Allowlist checks ---
+
+    @Test
+    @DisplayName("test-mode + 'dev' profile → context starts successfully")
+    void testModeWithDevProfileSucceeds() {
         contextRunner
                 .withPropertyValues("spring.profiles.active=dev")
                 .run(context -> {
                     assertThat(context).hasNotFailed();
+                });
+    }
+
+    @Test
+    @DisplayName("test-mode + 'test' profile → context starts successfully")
+    void testModeWithTestProfileSucceeds() {
+        contextRunner
+                .withPropertyValues("spring.profiles.active=test")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                });
+    }
+
+    @Test
+    @DisplayName("test-mode + 'local' profile → context starts successfully")
+    void testModeWithLocalProfileSucceeds() {
+        contextRunner
+                .withPropertyValues("spring.profiles.active=local")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                });
+    }
+
+    @Test
+    @DisplayName("test-mode + 'development' profile → context starts successfully")
+    void testModeWithDevelopmentProfileSucceeds() {
+        contextRunner
+                .withPropertyValues("spring.profiles.active=development")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                });
+    }
+
+    // --- Unknown / custom production profiles ---
+
+    @Test
+    @DisplayName("test-mode + unknown profile 'prd' without dev/test → fails (allowlist)")
+    void testModeWithUnknownProfilePrdFails() {
+        contextRunner
+                .withPropertyValues("spring.profiles.active=prd")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .rootCause()
+                            .isInstanceOf(IllegalStateException.class)
+                            .hasMessageContaining("requires an explicit dev/test profile");
+                });
+    }
+
+    @Test
+    @DisplayName("test-mode + no active profiles → fails (allowlist)")
+    void testModeWithNoProfilesFails() {
+        contextRunner
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .rootCause()
+                            .isInstanceOf(IllegalStateException.class)
+                            .hasMessageContaining("requires an explicit dev/test profile");
+                });
+    }
+
+    @Test
+    @DisplayName("test-mode + 'staging' without dev/test → fails (allowlist)")
+    void testModeWithStagingProfileFails() {
+        contextRunner
+                .withPropertyValues("spring.profiles.active=staging")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .rootCause()
+                            .isInstanceOf(IllegalStateException.class)
+                            .hasMessageContaining("requires an explicit dev/test profile");
                 });
     }
 }

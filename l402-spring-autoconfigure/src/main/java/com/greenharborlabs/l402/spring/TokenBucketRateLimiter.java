@@ -46,15 +46,14 @@ public class TokenBucketRateLimiter implements L402RateLimiter {
             cleanupStaleEntries();
         }
 
-        // Hard cap: reject new keys when the map is at capacity to prevent OOM
-        if (!buckets.containsKey(key) && buckets.size() >= MAX_BUCKETS) {
-            return false;
-        }
-
         boolean[] allowed = {false};
         buckets.compute(key, (_, existing) -> {
             long now = System.nanoTime();
             if (existing == null) {
+                // Atomic size check: reject new keys at capacity to prevent OOM
+                if (buckets.size() >= MAX_BUCKETS) {
+                    return null; // don't create bucket
+                }
                 // New bucket: start full, consume one token immediately
                 allowed[0] = true;
                 return new Bucket(maxTokens - 1.0, now);

@@ -280,4 +280,90 @@ class LnbitsBackendTest {
     void implementsLightningBackendInterface() {
         assertThat(backend).isInstanceOf(LightningBackend.class);
     }
+
+    // --- Malformed response tests ---
+
+    @Test
+    void createInvoice_throws_whenPaymentHashMissing() {
+        server.enqueue(new MockResponse()
+                .setResponseCode(201)
+                .setHeader("Content-Type", "application/json")
+                .setBody("""
+                        {"payment_request": "%s"}
+                        """.formatted(BOLT11)));
+
+        assertThatThrownBy(() -> backend.createInvoice(100L, "memo"))
+                .isInstanceOf(LnbitsException.class)
+                .hasMessageContaining("Missing 'payment_hash'");
+    }
+
+    @Test
+    void createInvoice_throws_whenPaymentRequestMissing() {
+        server.enqueue(new MockResponse()
+                .setResponseCode(201)
+                .setHeader("Content-Type", "application/json")
+                .setBody("""
+                        {"payment_hash": "%s"}
+                        """.formatted(PAYMENT_HASH_HEX)));
+
+        assertThatThrownBy(() -> backend.createInvoice(100L, "memo"))
+                .isInstanceOf(LnbitsException.class)
+                .hasMessageContaining("Missing 'payment_request'");
+    }
+
+    @Test
+    void lookupInvoice_throws_whenPaidFieldMissing() {
+        server.enqueue(new MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "application/json")
+                .setBody("""
+                        {"details": {"bolt11": "%s", "amount": 100}}
+                        """.formatted(BOLT11)));
+
+        assertThatThrownBy(() -> backend.lookupInvoice(PAYMENT_HASH))
+                .isInstanceOf(LnbitsException.class)
+                .hasMessageContaining("Missing 'paid'");
+    }
+
+    @Test
+    void lookupInvoice_throws_whenDetailsMissing() {
+        server.enqueue(new MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "application/json")
+                .setBody("""
+                        {"paid": false}
+                        """));
+
+        assertThatThrownBy(() -> backend.lookupInvoice(PAYMENT_HASH))
+                .isInstanceOf(LnbitsException.class)
+                .hasMessageContaining("Missing 'details'");
+    }
+
+    @Test
+    void lookupInvoice_throws_whenDetailsBolt11Missing() {
+        server.enqueue(new MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "application/json")
+                .setBody("""
+                        {"paid": false, "details": {"amount": 100}}
+                        """));
+
+        assertThatThrownBy(() -> backend.lookupInvoice(PAYMENT_HASH))
+                .isInstanceOf(LnbitsException.class)
+                .hasMessageContaining("Missing 'details.bolt11'");
+    }
+
+    @Test
+    void lookupInvoice_throws_whenDetailsAmountMissing() {
+        server.enqueue(new MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "application/json")
+                .setBody("""
+                        {"paid": false, "details": {"bolt11": "%s"}}
+                        """.formatted(BOLT11)));
+
+        assertThatThrownBy(() -> backend.lookupInvoice(PAYMENT_HASH))
+                .isInstanceOf(LnbitsException.class)
+                .hasMessageContaining("Missing 'details.amount'");
+    }
 }

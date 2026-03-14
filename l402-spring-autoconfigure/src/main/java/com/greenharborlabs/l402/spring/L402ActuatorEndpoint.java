@@ -16,6 +16,12 @@ import java.util.Map;
  *
  * <p>Available at {@code GET /actuator/l402} when the actuator is on the classpath
  * and the endpoint is exposed.
+ *
+ * <p><strong>Security warning:</strong> This endpoint exposes sensitive operational
+ * data including backend health status, all protected endpoint paths with pricing,
+ * active credential counts, and earnings metrics. In production deployments this
+ * endpoint should be secured behind authentication (e.g., Spring Security or
+ * management port restrictions) to prevent information disclosure.
  */
 @Endpoint(id = "l402")
 public class L402ActuatorEndpoint {
@@ -82,6 +88,7 @@ public class L402ActuatorEndpoint {
         map.put("totalInvoicesCreated", earningsTracker.getTotalInvoicesCreated());
         map.put("totalInvoicesSettled", earningsTracker.getTotalInvoicesSettled());
         map.put("totalSatsEarned", earningsTracker.getTotalSatsEarned());
+        map.put("note", "In-memory only; resets on application restart");
         return map;
     }
 }

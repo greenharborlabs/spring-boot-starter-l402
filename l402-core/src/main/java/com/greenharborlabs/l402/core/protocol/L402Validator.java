@@ -53,9 +53,16 @@ public final class L402Validator {
         L402Credential credential = L402Credential.parse(authorizationHeader);
         String tokenId = credential.tokenId();
 
-        // 2. Check credential cache — return immediately if found
+        // 2. Check credential cache — re-verify root key existence before returning
         L402Credential cached = credentialStore.get(tokenId);
         if (cached != null) {
+            MacaroonIdentifier cachedMacId = MacaroonIdentifier.decode(cached.macaroon().identifier());
+            byte[] cachedTokenIdBytes = cachedMacId.tokenId();
+            if (rootKeyStore.getRootKey(cachedTokenIdBytes) == null) {
+                credentialStore.revoke(tokenId);
+                throw new L402Exception(ErrorCode.REVOKED_CREDENTIAL,
+                        "Root key has been revoked", tokenId);
+            }
             return new ValidationResult(cached, false);
         }
 

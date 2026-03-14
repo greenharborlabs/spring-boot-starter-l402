@@ -203,15 +203,29 @@ class L402CredentialTest {
         }
 
         @Test
-        @DisplayName("throws MALFORMED_HEADER for preimage with uppercase hex (regex requires lowercase)")
-        void throwsForUppercaseHex() {
+        @DisplayName("parses preimage with uppercase hex characters")
+        void parsesUppercaseHex() {
             String upperHex = preimageHex.toUpperCase();
             String header = "L402 " + macaroonBase64 + ":" + upperHex;
 
-            assertThatThrownBy(() -> L402Credential.parse(header))
-                    .isInstanceOf(L402Exception.class)
-                    .extracting(e -> ((L402Exception) e).getErrorCode())
-                    .isEqualTo(ErrorCode.MALFORMED_HEADER);
+            L402Credential credential = L402Credential.parse(header);
+
+            assertThat(credential).isNotNull();
+            assertThat(credential.tokenId()).isEqualTo(tokenIdHex);
+        }
+
+        @Test
+        @DisplayName("parses preimage with mixed-case hex characters")
+        void parsesMixedCaseHex() {
+            // Mix case: uppercase first half, lowercase second half
+            String mixedHex = preimageHex.substring(0, 32).toUpperCase()
+                    + preimageHex.substring(32).toLowerCase();
+            String header = "L402 " + macaroonBase64 + ":" + mixedHex;
+
+            L402Credential credential = L402Credential.parse(header);
+
+            assertThat(credential).isNotNull();
+            assertThat(credential.tokenId()).isEqualTo(tokenIdHex);
         }
     }
 }

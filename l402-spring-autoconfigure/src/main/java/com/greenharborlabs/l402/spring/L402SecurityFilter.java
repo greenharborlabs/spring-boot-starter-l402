@@ -30,6 +30,7 @@ import java.io.IOException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Base64;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 
@@ -40,9 +41,10 @@ import java.util.Objects;
  * <p>Flow per request:
  * <ol>
  *   <li>Match request against registry; if no match, pass through</li>
- *   <li>Check Lightning backend health; if down, return 503</li>
- *   <li>Parse Authorization header; if absent/malformed, create invoice and return 402 challenge</li>
- *   <li>Validate credential; on success add headers and pass through; on failure return error</li>
+ *   <li>If Authorization header contains an L402/LSAT credential, validate it immediately
+ *       (no Lightning health check needed — credential validation is purely local)</li>
+ *   <li>If no valid credential, check Lightning backend health; if down, return 503</li>
+ *   <li>Create invoice and return 402 challenge</li>
  * </ol>
  */
 public class L402SecurityFilter implements Filter {
@@ -189,82 +191,80 @@ public class L402SecurityFilter implements Filter {
             return;
         }
 
-        // 2. Check Lightning backend health
+        // 2. Check Authorization header — validate credentials before checking Lightning health,
+        //    so requests with valid cached credentials skip the health-check cost entirely.
+        String authHeader = httpRequest.getHeader(AUTHORIZATION_HEADER);
+        if (authHeader != null && !authHeader.isEmpty()
+                && (authHeader.startsWith(L402_PREFIX) || authHeader.startsWith(LSAT_PREFIX))) {
+            // Header looks like an L402/LSAT credential — attempt validation (purely local, no Lightning needed)
+            try {
+                L402Validator.ValidationResult result = validator.validate(authHeader);
+                L402Credential credential = result.credential();
+
+                // Success: add headers and pass through
+                log.log(System.Logger.Level.DEBUG, "L402 credential validated successfully, tokenId={0}", credential.tokenId());
+                httpResponse.setHeader("X-L402-Token-Id", credential.tokenId());
+                httpResponse.setHeader("X-L402-Credential-Expires",
+                        Instant.now().plus(config.timeoutSeconds(), ChronoUnit.SECONDS).toString());
+
+                chain.doFilter(request, response);
+                recordPassed(path, config.priceSats(), result.freshValidation());
+                return;
+
+            } catch (L402Exception e) {
+                ErrorCode errorCode = e.getErrorCode();
+                log.log(System.Logger.Level.WARNING, "L402 validation failed, errorCode={0}, tokenId={1}", errorCode, e.getTokenId());
+                if (errorCode != ErrorCode.MALFORMED_HEADER) {
+                    // Non-malformed errors (expired, invalid signature, etc.) are terminal — no invoice needed
+                    writeErrorResponse(httpResponse, errorCode, e.getMessage(), e.getTokenId());
+                    recordRejected(path);
+                    return;
+                }
+                // MALFORMED_HEADER falls through to the invoice-creation path below
+            } catch (Exception e) {
+                // Fail closed: any unexpected exception from validation produces 503, never 500
+                log.log(System.Logger.Level.WARNING, "Unexpected error during L402 validation for {0} {1}: {2}", method, path, e.getMessage());
+                if (!httpResponse.isCommitted()) {
+                    writeLightningUnavailableResponse(httpResponse);
+                }
+                return;
+            }
+        }
+
+        // 3. No valid credential — an invoice must be created.
+        //    Check Lightning health first; only needed on this path.
         if (!lightningBackend.isHealthy()) {
             log.log(System.Logger.Level.WARNING, "Lightning backend health check failed for {0} {1}", method, path);
             writeLightningUnavailableResponse(httpResponse);
             return;
         }
 
-        // 3. Check Authorization header
-        String authHeader = httpRequest.getHeader(AUTHORIZATION_HEADER);
-        if (authHeader == null || authHeader.isEmpty()
-                || (!authHeader.startsWith(L402_PREFIX) && !authHeader.startsWith(LSAT_PREFIX))) {
-            // Check rate limit before creating invoice to prevent flooding
-            L402RateLimiter limiter = this.rateLimiter;
-            if (limiter != null && !limiter.tryAcquire(resolveClientIp(httpRequest))) {
-                writeRateLimitedResponse(httpResponse);
-                return;
-            }
-            try {
-                writePaymentRequiredResponse(httpRequest, httpResponse, config);
-                recordChallenge(path);
-            } catch (Exception e) {
-                log.log(System.Logger.Level.WARNING, "Failed to create invoice for {0} {1}: {2}", method, path, e.getMessage());
-                if (!httpResponse.isCommitted()) {
-                    writeLightningUnavailableResponse(httpResponse);
-                }
-            }
+        // 4. Check rate limit before creating invoice to prevent flooding
+        L402RateLimiter limiter = this.rateLimiter;
+        if (limiter != null && !limiter.tryAcquire(resolveClientIp(httpRequest))) {
+            writeRateLimitedResponse(httpResponse);
             return;
         }
 
-        // 4. Try to parse and validate credential
+        // 5. Issue 402 challenge with a new invoice
         try {
-            L402Validator.ValidationResult result = validator.validate(authHeader);
-            L402Credential credential = result.credential();
-
-            // Success: add headers and pass through
-            log.log(System.Logger.Level.DEBUG, "L402 credential validated successfully, tokenId={0}", credential.tokenId());
-            httpResponse.setHeader("X-L402-Token-Id", credential.tokenId());
-            httpResponse.setHeader("X-L402-Credential-Expires",
-                    Instant.now().plus(config.timeoutSeconds(), ChronoUnit.SECONDS).toString());
-
-            chain.doFilter(request, response);
-            recordPassed(path, config.priceSats(), result.freshValidation());
-
-        } catch (L402Exception e) {
-            ErrorCode errorCode = e.getErrorCode();
-            log.log(System.Logger.Level.WARNING, "L402 validation failed, errorCode={0}, tokenId={1}", errorCode, e.getTokenId());
-            if (errorCode == ErrorCode.MALFORMED_HEADER) {
-                // Check rate limit before creating invoice to prevent flooding
-                L402RateLimiter limiter = this.rateLimiter;
-                if (limiter != null && !limiter.tryAcquire(resolveClientIp(httpRequest))) {
-                    writeRateLimitedResponse(httpResponse);
-                    return;
-                }
-                // Malformed L402 header: issue a new challenge
-                try {
-                    writePaymentRequiredResponse(httpRequest, httpResponse, config);
-                    recordChallenge(path);
-                } catch (Exception ex) {
-                    log.log(System.Logger.Level.WARNING, "Failed to create invoice for {0} {1}: {2}", method, path, ex.getMessage());
-                    if (!httpResponse.isCommitted()) {
-                        writeLightningUnavailableResponse(httpResponse);
-                    }
-                }
-            } else {
-                writeErrorResponse(httpResponse, errorCode, e.getMessage(), e.getTokenId());
-                recordRejected(path);
-            }
+            writePaymentRequiredResponse(httpRequest, httpResponse, config);
+            recordChallenge(path);
         } catch (Exception e) {
-            // Fail closed: any unexpected exception from validation produces 503, never 500
-            log.log(System.Logger.Level.WARNING, "Unexpected error during L402 validation for {0} {1}: {2}", method, path, e.getMessage());
+            log.log(System.Logger.Level.WARNING, "Failed to create invoice for {0} {1}: {2}", method, path, e.getMessage());
             if (!httpResponse.isCommitted()) {
                 writeLightningUnavailableResponse(httpResponse);
             }
         }
     }
 
+    // NOTE: This method performs three sequential blocking operations:
+    // (1) rootKeyStore.generateRootKey() — file I/O with write lock
+    // (2) lightningBackend.createInvoice() — synchronous network call
+    // (3) MacaroonMinter.mint() — CPU-bound HMAC computation
+    // The CachingLightningBackendWrapper mitigates (2) for health checks.
+    // Future optimization: consider virtual threads or structured concurrency
+    // to parallelize (1) and (2) when they are independent.
     private void writePaymentRequiredResponse(HttpServletRequest request,
                                                HttpServletResponse response,
                                                L402EndpointConfig config)
@@ -301,15 +301,26 @@ public class L402SecurityFilter implements Filter {
         byte[] serialized = MacaroonSerializer.serializeV2(macaroon);
         String macaroonBase64 = Base64.getEncoder().encodeToString(serialized);
 
-        // Build response
-        String wwwAuth = "L402 macaroon=\"" + macaroonBase64 + "\", invoice=\"" + invoice.bolt11() + "\"";
+        // Build response — sanitize bolt11 to prevent header injection and JSON breaking
+        String safeBolt11Header = sanitizeBolt11ForHeader(invoice.bolt11());
+        String wwwAuth = "L402 macaroon=\"" + macaroonBase64 + "\", invoice=\"" + safeBolt11Header + "\"";
 
         response.setStatus(HttpServletResponse.SC_PAYMENT_REQUIRED);
         response.setHeader("WWW-Authenticate", wwwAuth);
         response.setContentType("application/json");
+
+        // In test mode the backend includes the preimage on the PENDING invoice so
+        // users can complete the full L402 flow with curl. Real backends never set
+        // preimage on PENDING invoices, so this field only appears in test mode.
+        String testPreimageField = "";
+        byte[] invoicePreimage = invoice.preimage();
+        if (invoicePreimage != null) {
+            testPreimageField = ", \"test_preimage\": \"" + HexFormat.of().formatHex(invoicePreimage) + "\"";
+        }
+
         response.getWriter().write("""
-                {"code": 402, "message": "Payment required", "price_sats": %d, "description": "%s", "invoice": "%s"}"""
-                .formatted(effectivePrice, JsonEscaper.escape(config.description()), invoice.bolt11()));
+                {"code": 402, "message": "Payment required", "price_sats": %d, "description": "%s", "invoice": "%s"%s}"""
+                .formatted(effectivePrice, JsonEscaper.escape(config.description()), JsonEscaper.escape(invoice.bolt11()), testPreimageField));
     }
 
     /**
@@ -393,6 +404,25 @@ public class L402SecurityFilter implements Filter {
         } catch (Exception e) {
             log.log(System.Logger.Level.WARNING, "Failed to record rejected metric: {0}", e.getMessage());
         }
+    }
+
+    /**
+     * Strips characters from a bolt11 string that could enable HTTP header injection
+     * or break the WWW-Authenticate header format. Removes double quotes, carriage
+     * returns, and newlines.
+     */
+    private static String sanitizeBolt11ForHeader(String bolt11) {
+        if (bolt11 == null) {
+            return "";
+        }
+        var sb = new StringBuilder(bolt11.length());
+        for (int i = 0; i < bolt11.length(); i++) {
+            char c = bolt11.charAt(i);
+            if (c != '"' && c != '\r' && c != '\n') {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
     }
 
     /**

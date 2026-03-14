@@ -35,7 +35,8 @@ class TestModeConfigTest {
             .withPropertyValues(
                     "l402.enabled=true",
                     "l402.test-mode=true",
-                    "l402.root-key-store=memory"
+                    "l402.root-key-store=memory",
+                    "spring.profiles.active=test"
             );
 
     @Test

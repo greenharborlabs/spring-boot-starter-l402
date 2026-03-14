@@ -279,27 +279,24 @@ class InMemoryCredentialStoreTest {
         }
 
         @Test
-        @DisplayName("evicts oldest entry when at capacity and no expired entries")
-        void evictsOldestEntryWhenNoExpired() {
+        @DisplayName("evicts a random entry when at capacity and no expired entries")
+        void evictsRandomEntryWhenNoExpired() {
             var boundedStore = new InMemoryCredentialStore(3);
 
-            // Store 3 entries with increasing TTLs (oldest = shortest expiresAt)
-            String oldest = randomTokenId();
-            boundedStore.store(oldest, createTestCredential(oldest), 100);
+            String first = randomTokenId();
+            boundedStore.store(first, createTestCredential(first), 100);
 
-            String middle = randomTokenId();
-            boundedStore.store(middle, createTestCredential(middle), 200);
+            String second = randomTokenId();
+            boundedStore.store(second, createTestCredential(second), 200);
 
-            String newest = randomTokenId();
-            boundedStore.store(newest, createTestCredential(newest), 300);
+            String third = randomTokenId();
+            boundedStore.store(third, createTestCredential(third), 300);
 
-            // Store a 4th — should evict the oldest (shortest expiresAt)
+            // Store a 4th — should evict one random entry to make room
             String fourth = randomTokenId();
             boundedStore.store(fourth, createTestCredential(fourth), 400);
 
-            assertThat(boundedStore.get(oldest)).isNull();
-            assertThat(boundedStore.get(middle)).isNotNull();
-            assertThat(boundedStore.get(newest)).isNotNull();
+            // The new entry must be present; exactly one of the original three was evicted
             assertThat(boundedStore.get(fourth)).isNotNull();
             assertThat(boundedStore.activeCount()).isEqualTo(3);
         }

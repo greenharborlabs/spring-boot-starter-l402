@@ -3,8 +3,8 @@ package com.greenharborlabs.l402.core.credential;
 import com.greenharborlabs.l402.core.protocol.L402Credential;
 
 import java.time.Instant;
-import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 
 public class InMemoryCredentialStore implements CredentialStore {
 
@@ -49,8 +49,8 @@ public class InMemoryCredentialStore implements CredentialStore {
             return;
         }
 
-        // Still full: evict the entry nearest to expiry (earliest expiresAt)
-        evictNearestExpiry();
+        // Still full: evict a random entry to avoid O(N) scan under lock
+        evictRandom();
         entries.put(tokenId, cached);
     }
 
@@ -96,15 +96,13 @@ public class InMemoryCredentialStore implements CredentialStore {
         }
     }
 
-    private void evictNearestExpiry() {
-        Map.Entry<String, CachedCredential> oldest = null;
-        for (var entry : entries.entrySet()) {
-            if (oldest == null || entry.getValue().expiresAt().isBefore(oldest.getValue().expiresAt())) {
-                oldest = entry;
-            }
+    private void evictRandom() {
+        // Pick a random entry via key snapshot — O(1) amortized, no full scan
+        var keys = entries.keySet().toArray(String[]::new);
+        if (keys.length == 0) {
+            return;
         }
-        if (oldest != null) {
-            entries.remove(oldest.getKey());
-        }
+        int index = ThreadLocalRandom.current().nextInt(keys.length);
+        entries.remove(keys[index]);
     }
 }

@@ -11,6 +11,7 @@ import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -32,6 +33,7 @@ public final class FileBasedRootKeyStore implements RootKeyStore {
     private final Path directory;
     private final SecureRandom secureRandom = new SecureRandom();
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
+    private final ConcurrentHashMap<String, byte[]> cache = new ConcurrentHashMap<>();
     private final boolean posix;
 
     public FileBasedRootKeyStore(Path directory) {
@@ -57,12 +59,21 @@ public final class FileBasedRootKeyStore implements RootKeyStore {
             lock.writeLock().unlock();
         }
 
+        cache.put(hexKeyId, rootKey.clone());
+
         return new GenerationResult(rootKey, tokenId);
     }
 
     @Override
     public byte[] getRootKey(byte[] keyId) {
         String hexKeyId = HEX.formatHex(keyId);
+
+        // Check in-memory cache first — root keys are immutable once written
+        byte[] cached = cache.get(hexKeyId);
+        if (cached != null) {
+            return cached.clone();
+        }
+
         Path keyFile = resolveKeyFile(hexKeyId);
 
         lock.readLock().lock();
@@ -71,7 +82,9 @@ public final class FileBasedRootKeyStore implements RootKeyStore {
                 return null;
             }
             String hexContent = Files.readString(keyFile).strip();
-            return HEX.parseHex(hexContent);
+            byte[] rootKey = HEX.parseHex(hexContent);
+            cache.put(hexKeyId, rootKey.clone());
+            return rootKey;
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to read root key: " + hexKeyId, e);
         } finally {
@@ -83,6 +96,8 @@ public final class FileBasedRootKeyStore implements RootKeyStore {
     public void revokeRootKey(byte[] keyId) {
         String hexKeyId = HEX.formatHex(keyId);
         Path keyFile = resolveKeyFile(hexKeyId);
+
+        cache.remove(hexKeyId);
 
         lock.writeLock().lock();
         try {

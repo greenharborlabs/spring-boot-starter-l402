@@ -82,17 +82,6 @@ class L402ActuatorEndpointTest {
         }
 
         @Bean
-        L402Properties l402Properties() {
-            var props = new L402Properties();
-            props.setEnabled(true);
-            props.setBackend("lnbits");
-            props.setServiceName("my-api");
-            props.setTestMode(false);
-            props.setCredentialCacheMaxSize(10000);
-            return props;
-        }
-
-        @Bean
         L402EndpointRegistry l402EndpointRegistry() {
             var registry = new L402EndpointRegistry();
             registry.register(new L402EndpointConfig(
@@ -284,6 +273,14 @@ class L402ActuatorEndpointTest {
         void containsTotalSatsEarned() throws Exception {
             mockMvc.perform(get("/actuator/l402"))
                     .andExpect(jsonPath("$.earnings.totalSatsEarned", is(12010)));
+        }
+
+        @Test
+        @DisplayName("contains in-memory volatility note")
+        void containsVolatilityNote() throws Exception {
+            mockMvc.perform(get("/actuator/l402"))
+                    .andExpect(jsonPath("$.earnings.note",
+                            is("In-memory only; resets on application restart")));
         }
     }
 

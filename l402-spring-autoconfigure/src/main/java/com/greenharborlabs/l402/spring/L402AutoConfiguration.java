@@ -17,13 +17,13 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.Ordered;
-import org.springframework.core.env.Environment;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 import java.nio.file.Path;
@@ -38,14 +38,8 @@ import java.util.List;
  */
 @AutoConfiguration
 @ConditionalOnProperty(name = "l402.enabled", havingValue = "true", matchIfMissing = false)
+@EnableConfigurationProperties(L402Properties.class)
 public class L402AutoConfiguration {
-
-    @Bean
-    @ConditionalOnMissingBean
-    public L402Properties l402Properties(Environment environment) {
-        return Binder.get(environment)
-                .bindOrCreate("l402", L402Properties.class);
-    }
 
     @Bean
     @ConditionalOnMissingBean
