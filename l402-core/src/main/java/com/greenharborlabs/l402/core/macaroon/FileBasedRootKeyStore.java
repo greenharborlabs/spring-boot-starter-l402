@@ -105,7 +105,7 @@ public final class FileBasedRootKeyStore implements RootKeyStore {
             String hexContent = Files.readString(keyFile).strip();
             byte[] rootKey = HEX.parseHex(hexContent);
             cache.put(hexKeyId, rootKey.clone());
-            return rootKey;
+            return rootKey.clone();
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to read root key: " + hexKeyId, e);
         } finally {

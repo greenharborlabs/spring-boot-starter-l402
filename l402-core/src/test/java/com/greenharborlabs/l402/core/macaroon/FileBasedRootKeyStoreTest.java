@@ -158,6 +158,30 @@ class FileBasedRootKeyStoreTest {
         }
 
         @Test
+        @DisplayName("disk-read path returns defensive copy that callers can safely mutate")
+        void diskReadPathReturnsDefensiveCopy() {
+            RootKeyStore.GenerationResult result = store.generateRootKey();
+            byte[] key = result.rootKey();
+            byte[] keyId = result.tokenId();
+
+            // Fresh store instance has an empty cache, so getRootKey hits the disk path
+            FileBasedRootKeyStore freshStore = new FileBasedRootKeyStore(tempDir);
+
+            byte[] firstRead = freshStore.getRootKey(keyId);
+            assertThat(firstRead).isEqualTo(key);
+
+            // Mutate the returned array — should not affect future reads
+            java.util.Arrays.fill(firstRead, (byte) 0xFF);
+
+            // Second read from yet another fresh store (empty cache, disk path again)
+            FileBasedRootKeyStore anotherFreshStore = new FileBasedRootKeyStore(tempDir);
+            byte[] secondRead = anotherFreshStore.getRootKey(keyId);
+
+            assertThat(secondRead).isEqualTo(key);
+            assertThat(secondRead).isNotEqualTo(firstRead);
+        }
+
+        @Test
         @DisplayName("reads back correctly from a fresh store instance over same directory")
         void readsBackFromFreshInstance() {
             RootKeyStore.GenerationResult result = store.generateRootKey();
