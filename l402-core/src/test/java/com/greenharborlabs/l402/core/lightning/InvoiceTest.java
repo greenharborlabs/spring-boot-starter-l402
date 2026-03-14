@@ -425,6 +425,57 @@ class InvoiceTest {
         assertThat(a).isNotEqualTo(b);
     }
 
+    // --- Constant-time comparison security property ---
+
+    @Test
+    void equalsUsesConstantTimeComparisonForSecretFields() {
+        // This test documents the security property that equals() uses constant-time
+        // comparison (via MacaroonCrypto.constantTimeEquals) for paymentHash and preimage,
+        // preventing timing side-channel attacks. We verify behavioral correctness here;
+        // the constant-time guarantee comes from the implementation using XOR accumulation.
+
+        var base = validInvoice();
+
+        // Identical secrets -- must be equal
+        var identical = validInvoice();
+        assertThat(base).isEqualTo(identical);
+
+        // paymentHash differs only in last byte -- must be not-equal
+        byte[] nearHash = VALID_HASH.clone();
+        nearHash[31] ^= 0x01;
+        var nearHashInvoice = new Invoice(
+                nearHash, VALID_BOLT11, VALID_AMOUNT,
+                VALID_MEMO, InvoiceStatus.PENDING, VALID_PREIMAGE.clone(),
+                CREATED, EXPIRES
+        );
+        assertThat(base).isNotEqualTo(nearHashInvoice);
+
+        // preimage differs only in last byte -- must be not-equal
+        byte[] nearPreimage = VALID_PREIMAGE.clone();
+        nearPreimage[31] ^= 0x01;
+        var nearPreimageInvoice = new Invoice(
+                VALID_HASH.clone(), VALID_BOLT11, VALID_AMOUNT,
+                VALID_MEMO, InvoiceStatus.PENDING, nearPreimage,
+                CREATED, EXPIRES
+        );
+        assertThat(base).isNotEqualTo(nearPreimageInvoice);
+
+        // Both preimages null -- must be equal
+        var nullPreA = new Invoice(
+                VALID_HASH.clone(), VALID_BOLT11, VALID_AMOUNT,
+                VALID_MEMO, InvoiceStatus.PENDING, null, CREATED, EXPIRES
+        );
+        var nullPreB = new Invoice(
+                VALID_HASH.clone(), VALID_BOLT11, VALID_AMOUNT,
+                VALID_MEMO, InvoiceStatus.PENDING, null, CREATED, EXPIRES
+        );
+        assertThat(nullPreA).isEqualTo(nullPreB);
+
+        // One preimage null, other non-null -- must be not-equal
+        assertThat(nullPreA).isNotEqualTo(base);
+        assertThat(base).isNotEqualTo(nullPreA);
+    }
+
     // --- toString ---
 
     @Test

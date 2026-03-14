@@ -1,5 +1,7 @@
 package com.greenharborlabs.l402.core.lightning;
 
+import com.greenharborlabs.l402.core.macaroon.MacaroonCrypto;
+
 import java.time.Instant;
 import java.util.Arrays;
 
@@ -69,14 +71,20 @@ public record Invoice(
     @Override
     public boolean equals(Object o) {
         return o instanceof Invoice other
-                && Arrays.equals(paymentHash, other.paymentHash)
+                && MacaroonCrypto.constantTimeEquals(paymentHash, other.paymentHash)
                 && bolt11.equals(other.bolt11)
                 && amountSats == other.amountSats
                 && java.util.Objects.equals(memo, other.memo)
                 && status == other.status
-                && Arrays.equals(preimage, other.preimage)
+                && constantTimePreimageEquals(preimage, other.preimage)
                 && createdAt.equals(other.createdAt)
                 && expiresAt.equals(other.expiresAt);
+    }
+
+    private static boolean constantTimePreimageEquals(byte[] a, byte[] b) {
+        if (a == null && b == null) return true;
+        if (a == null || b == null) return false;
+        return MacaroonCrypto.constantTimeEquals(a, b);
     }
 
     @Override
