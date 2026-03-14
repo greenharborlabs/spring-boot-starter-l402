@@ -16,9 +16,11 @@ public final class InMemoryRootKeyStore implements RootKeyStore {
 
     private final SecureRandom secureRandom = new SecureRandom();
     private final ConcurrentHashMap<String, byte[]> keys = new ConcurrentHashMap<>();
+    private volatile boolean closed;
 
     @Override
     public GenerationResult generateRootKey() {
+        ensureOpen();
         byte[] rootKey = new byte[KEY_LENGTH];
         secureRandom.nextBytes(rootKey);
 
@@ -33,6 +35,7 @@ public final class InMemoryRootKeyStore implements RootKeyStore {
 
     @Override
     public SensitiveBytes getRootKey(byte[] keyId) {
+        ensureOpen();
         String hexKeyId = HEX.formatHex(keyId);
         byte[] stored = keys.get(hexKeyId);
         return stored == null ? null : new SensitiveBytes(stored.clone());
@@ -40,7 +43,32 @@ public final class InMemoryRootKeyStore implements RootKeyStore {
 
     @Override
     public void revokeRootKey(byte[] keyId) {
+        ensureOpen();
         String hexKeyId = HEX.formatHex(keyId);
-        keys.remove(hexKeyId);
+        keys.computeIfPresent(hexKeyId, (_, value) -> {
+            Arrays.fill(value, (byte) 0);
+            return null; // removes the entry
+        });
+    }
+
+    @Override
+    public void close() {
+        if (closed) {
+            return;
+        }
+        synchronized (this) {
+            if (closed) {
+                return;
+            }
+            keys.values().forEach(value -> Arrays.fill(value, (byte) 0));
+            keys.clear();
+            closed = true;
+        }
+    }
+
+    private void ensureOpen() {
+        if (closed) {
+            throw new IllegalStateException("Store is closed");
+        }
     }
 }

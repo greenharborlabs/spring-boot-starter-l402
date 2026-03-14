@@ -36,6 +36,7 @@ public final class FileBasedRootKeyStore implements RootKeyStore {
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
     private final Map<String, byte[]> cache;
     private final boolean posix;
+    private volatile boolean closed;
 
     public FileBasedRootKeyStore(Path directory) {
         this(directory, DEFAULT_MAX_CACHE_SIZE);
@@ -48,7 +49,11 @@ public final class FileBasedRootKeyStore implements RootKeyStore {
         this.cache = new LinkedHashMap<>(16, 0.75f, false) {
             @Override
             protected boolean removeEldestEntry(Map.Entry<String, byte[]> eldest) {
-                return size() > maxCacheSize;
+                if (size() > maxCacheSize) {
+                    KeyMaterial.zeroize(eldest.getValue());
+                    return true;
+                }
+                return false;
             }
         };
         ensureDirectory();
@@ -56,6 +61,7 @@ public final class FileBasedRootKeyStore implements RootKeyStore {
 
     @Override
     public GenerationResult generateRootKey() {
+        ensureOpen();
         byte[] rootKey = new byte[KEY_LENGTH];
         secureRandom.nextBytes(rootKey);
 
@@ -66,6 +72,7 @@ public final class FileBasedRootKeyStore implements RootKeyStore {
 
         lock.writeLock().lock();
         try {
+            ensureOpen();
             writeKeyFile(hexKeyId, rootKey);
             cache.put(hexKeyId, rootKey.clone());
         } finally {
@@ -77,12 +84,14 @@ public final class FileBasedRootKeyStore implements RootKeyStore {
 
     @Override
     public SensitiveBytes getRootKey(byte[] keyId) {
+        ensureOpen();
         String hexKeyId = HEX.formatHex(keyId);
         Path keyFile = resolveKeyFile(hexKeyId);
 
         // Fast path: read lock for cache hit (safe because accessOrder=false)
         lock.readLock().lock();
         try {
+            ensureOpen();
             byte[] cached = cache.get(hexKeyId);
             if (cached != null) {
                 return new SensitiveBytes(cached.clone());
@@ -94,6 +103,7 @@ public final class FileBasedRootKeyStore implements RootKeyStore {
         // Slow path: write lock for disk read + cache population
         lock.writeLock().lock();
         try {
+            ensureOpen();
             // Double-check after lock promotion
             byte[] cached = cache.get(hexKeyId);
             if (cached != null) {
@@ -115,17 +125,46 @@ public final class FileBasedRootKeyStore implements RootKeyStore {
 
     @Override
     public void revokeRootKey(byte[] keyId) {
+        ensureOpen();
         String hexKeyId = HEX.formatHex(keyId);
         Path keyFile = resolveKeyFile(hexKeyId);
 
         lock.writeLock().lock();
         try {
+            ensureOpen();
             Files.deleteIfExists(keyFile);
-            cache.remove(hexKeyId);
+            byte[] removed = cache.remove(hexKeyId);
+            KeyMaterial.zeroize(removed);
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to revoke root key: " + hexKeyId, e);
         } finally {
             lock.writeLock().unlock();
+        }
+    }
+
+    @Override
+    public void close() {
+        if (closed) {
+            return;
+        }
+        lock.writeLock().lock();
+        try {
+            if (closed) {
+                return;
+            }
+            for (byte[] value : cache.values()) {
+                KeyMaterial.zeroize(value);
+            }
+            cache.clear();
+            closed = true;
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    private void ensureOpen() {
+        if (closed) {
+            throw new IllegalStateException("RootKeyStore has been closed");
         }
     }
 

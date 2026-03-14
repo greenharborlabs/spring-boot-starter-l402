@@ -29,12 +29,18 @@ public final class MacaroonMinter {
 
         byte[] identifierBytes = MacaroonIdentifier.encode(identifier);
         byte[] derivedKey = MacaroonCrypto.deriveKey(rootKey);
-        byte[] sig = MacaroonCrypto.hmac(derivedKey, identifierBytes);
+        try {
+            byte[] sig = MacaroonCrypto.hmac(derivedKey, identifierBytes);
 
-        for (Caveat caveat : caveats) {
-            sig = MacaroonCrypto.hmac(sig, caveat.toString().getBytes(StandardCharsets.UTF_8));
+            for (Caveat caveat : caveats) {
+                byte[] oldSig = sig;
+                sig = MacaroonCrypto.hmac(oldSig, caveat.toString().getBytes(StandardCharsets.UTF_8));
+                KeyMaterial.zeroize(oldSig);
+            }
+
+            return new Macaroon(identifierBytes, location, caveats, sig);
+        } finally {
+            KeyMaterial.zeroize(derivedKey);
         }
-
-        return new Macaroon(identifierBytes, location, caveats, sig);
     }
 }

@@ -11,22 +11,29 @@ public final class MacaroonVerifier {
                               List<CaveatVerifier> caveatVerifiers,
                               L402VerificationContext context) {
         byte[] derivedKey = MacaroonCrypto.deriveKey(rootKey);
-        byte[] sig = MacaroonCrypto.hmac(derivedKey, macaroon.identifier());
+        byte[] sig = null;
+        try {
+            sig = MacaroonCrypto.hmac(derivedKey, macaroon.identifier());
 
-        for (Caveat caveat : macaroon.caveats()) {
-            sig = MacaroonCrypto.hmac(sig, caveat.toString().getBytes(StandardCharsets.UTF_8));
-        }
-
-        if (!MacaroonCrypto.constantTimeEquals(sig, macaroon.signature())) {
-            throw new MacaroonVerificationException("signature verification failed");
-        }
-
-        for (Caveat caveat : macaroon.caveats()) {
-            CaveatVerifier verifier = findVerifier(caveatVerifiers, caveat.key());
-            if (verifier == null) {
-                throw new MacaroonVerificationException("no verifier for caveat: " + caveat.key());
+            for (Caveat caveat : macaroon.caveats()) {
+                byte[] oldSig = sig;
+                sig = MacaroonCrypto.hmac(oldSig, caveat.toString().getBytes(StandardCharsets.UTF_8));
+                KeyMaterial.zeroize(oldSig);
             }
-            verifier.verify(caveat, context);
+
+            if (!MacaroonCrypto.constantTimeEquals(sig, macaroon.signature())) {
+                throw new MacaroonVerificationException("signature verification failed");
+            }
+
+            for (Caveat caveat : macaroon.caveats()) {
+                CaveatVerifier verifier = findVerifier(caveatVerifiers, caveat.key());
+                if (verifier == null) {
+                    throw new MacaroonVerificationException("no verifier for caveat: " + caveat.key());
+                }
+                verifier.verify(caveat, context);
+            }
+        } finally {
+            KeyMaterial.zeroize(derivedKey, sig);
         }
     }
 

@@ -5,8 +5,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
 import java.security.SecureRandom;
 import java.util.HexFormat;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
@@ -15,6 +17,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("InMemoryRootKeyStore")
 class InMemoryRootKeyStoreTest {
@@ -225,5 +228,134 @@ class InMemoryRootKeyStoreTest {
             assertThat(finished).isTrue();
             // No assertion on final state — the test verifies no exceptions were thrown
         }
+    }
+
+    @Nested
+    @DisplayName("revokeRootKey zeroization")
+    class RevokeZeroization {
+
+        @Test
+        @DisplayName("revoked key bytes are zeroed in the internal map")
+        void revokedKeyBytesAreZeroed() throws Exception {
+            RootKeyStore.GenerationResult result = store.generateRootKey();
+            byte[] keyId = result.tokenId();
+
+            // Grab a reference to the internal byte[] via the internal map
+            byte[] internalRef = getInternalKeyRef(store, keyId);
+            assertThat(internalRef).isNotNull();
+            // Verify it is non-zero before revocation
+            assertThat(isAllZeros(internalRef)).isFalse();
+
+            store.revokeRootKey(keyId);
+
+            // The internal byte[] should now be all zeros
+            assertThat(isAllZeros(internalRef)).isTrue();
+            // And the key should no longer be retrievable
+            assertThat(store.getRootKey(keyId)).isNull();
+        }
+    }
+
+    @Nested
+    @DisplayName("close")
+    class Close {
+
+        @Test
+        @DisplayName("close zeroizes all stored key material")
+        void closeZeroizesAllEntries() throws Exception {
+            RootKeyStore.GenerationResult r1 = store.generateRootKey();
+            RootKeyStore.GenerationResult r2 = store.generateRootKey();
+
+            byte[] ref1 = getInternalKeyRef(store, r1.tokenId());
+            byte[] ref2 = getInternalKeyRef(store, r2.tokenId());
+
+            assertThat(isAllZeros(ref1)).isFalse();
+            assertThat(isAllZeros(ref2)).isFalse();
+
+            store.close();
+
+            assertThat(isAllZeros(ref1)).isTrue();
+            assertThat(isAllZeros(ref2)).isTrue();
+        }
+
+        @Test
+        @DisplayName("close clears the internal map")
+        void closeClearsMap() throws Exception {
+            store.generateRootKey();
+            store.generateRootKey();
+
+            @SuppressWarnings("unchecked")
+            Map<String, byte[]> internalMap = (Map<String, byte[]>) getField(store, "keys");
+            assertThat(internalMap).isNotEmpty();
+
+            store.close();
+
+            assertThat(internalMap).isEmpty();
+        }
+
+        @Test
+        @DisplayName("double close is idempotent — no exception")
+        void doubleCloseIsIdempotent() {
+            store.generateRootKey();
+
+            store.close();
+            store.close(); // should not throw
+        }
+
+        @Test
+        @DisplayName("getRootKey after close throws IllegalStateException")
+        void getRootKeyAfterCloseThrows() {
+            RootKeyStore.GenerationResult result = store.generateRootKey();
+            byte[] keyId = result.tokenId();
+
+            store.close();
+
+            assertThatThrownBy(() -> store.getRootKey(keyId))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessage("Store is closed");
+        }
+
+        @Test
+        @DisplayName("generateRootKey after close throws IllegalStateException")
+        void generateRootKeyAfterCloseThrows() {
+            store.close();
+
+            assertThatThrownBy(() -> store.generateRootKey())
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessage("Store is closed");
+        }
+
+        @Test
+        @DisplayName("revokeRootKey after close throws IllegalStateException")
+        void revokeRootKeyAfterCloseThrows() {
+            RootKeyStore.GenerationResult result = store.generateRootKey();
+            byte[] keyId = result.tokenId();
+
+            store.close();
+
+            assertThatThrownBy(() -> store.revokeRootKey(keyId))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessage("Store is closed");
+        }
+    }
+
+    // --- Test helpers ---
+
+    @SuppressWarnings("unchecked")
+    private static byte[] getInternalKeyRef(InMemoryRootKeyStore store, byte[] keyId) throws Exception {
+        Map<String, byte[]> map = (Map<String, byte[]>) getField(store, "keys");
+        return map.get(HEX.formatHex(keyId));
+    }
+
+    private static Object getField(Object target, String fieldName) throws Exception {
+        Field field = target.getClass().getDeclaredField(fieldName);
+        field.setAccessible(true);
+        return field.get(target);
+    }
+
+    private static boolean isAllZeros(byte[] bytes) {
+        for (byte b : bytes) {
+            if (b != 0) return false;
+        }
+        return true;
     }
 }
