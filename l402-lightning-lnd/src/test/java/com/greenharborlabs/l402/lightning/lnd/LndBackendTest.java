@@ -146,6 +146,15 @@ class LndBackendTest {
     }
 
     @Test
+    void close_shutsDownChannel() throws Exception {
+        var backend = startBackendWith(new LightningGrpc.LightningImplBase() {});
+
+        assertThat(channel.isShutdown()).isFalse();
+        backend.close();
+        assertThat(channel.isShutdown()).isTrue();
+    }
+
+    @Test
     void isHealthy_returnsFalseOnGrpcFailure() throws Exception {
         var backend = startBackendWith(new LightningGrpc.LightningImplBase() {
             @Override

@@ -102,7 +102,7 @@ class LnbitsBackendTest {
                     "details": {
                         "payment_hash": "%s",
                         "bolt11": "%s",
-                        "amount": 100,
+                        "amount": 100000,
                         "memo": "lookup memo"
                     }
                 }
@@ -128,6 +128,7 @@ class LnbitsBackendTest {
         assertThat(invoice).isNotNull();
         assertThat(invoice.paymentHash()).isEqualTo(PAYMENT_HASH);
         assertThat(invoice.status()).isEqualTo(InvoiceStatus.PENDING);
+        assertThat(invoice.amountSats()).isEqualTo(100);
     }
 
     @Test
@@ -142,7 +143,7 @@ class LnbitsBackendTest {
                     "details": {
                         "payment_hash": "%s",
                         "bolt11": "%s",
-                        "amount": 250,
+                        "amount": 250000,
                         "memo": "settled memo"
                     }
                 }
@@ -159,6 +160,7 @@ class LnbitsBackendTest {
         // Then
         assertThat(invoice.status()).isEqualTo(InvoiceStatus.SETTLED);
         assertThat(invoice.preimage()).isEqualTo(HEX.parseHex(preimageHex));
+        assertThat(invoice.amountSats()).isEqualTo(250);
     }
 
     @Test
@@ -206,7 +208,7 @@ class LnbitsBackendTest {
                 .setResponseCode(200)
                 .setHeader("Content-Type", "application/json")
                 .setBody("""
-                        {"paid": false, "details": {"payment_hash": "%s", "bolt11": "%s", "amount": 100, "memo": "m"}}
+                        {"paid": false, "details": {"payment_hash": "%s", "bolt11": "%s", "amount": 100000, "memo": "m"}}
                         """.formatted(PAYMENT_HASH_HEX, BOLT11)));
 
         server.enqueue(new MockResponse()

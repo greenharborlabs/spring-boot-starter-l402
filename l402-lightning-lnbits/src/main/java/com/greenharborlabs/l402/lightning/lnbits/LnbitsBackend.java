@@ -132,7 +132,7 @@ public class LnbitsBackend implements LightningBackend {
             }
 
             String bolt11 = bolt11Node.asText();
-            long amount = amountNode.asLong();
+            long amount = amountNode.asLong() / 1000;
             String memo = details.has("memo") ? details.get("memo").asText() : null;
 
             InvoiceStatus status = paid ? InvoiceStatus.SETTLED : InvoiceStatus.PENDING;

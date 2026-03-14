@@ -17,12 +17,19 @@ import java.util.concurrent.TimeUnit;
 /**
  * {@link LightningBackend} implementation backed by an LND node via gRPC.
  */
-public class LndBackend implements LightningBackend {
+public class LndBackend implements LightningBackend, AutoCloseable {
 
+    private final ManagedChannel channel;
     private final LightningGrpc.LightningBlockingStub stub;
 
     public LndBackend(ManagedChannel channel) {
+        this.channel = channel;
         this.stub = LightningGrpc.newBlockingStub(channel);
+    }
+
+    @Override
+    public void close() {
+        channel.shutdown();
     }
 
     private static final long DEFAULT_EXPIRY_SECONDS = 3600L;
