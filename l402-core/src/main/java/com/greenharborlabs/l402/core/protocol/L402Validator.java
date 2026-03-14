@@ -5,6 +5,7 @@ import com.greenharborlabs.l402.core.macaroon.Caveat;
 import com.greenharborlabs.l402.core.macaroon.CaveatVerifier;
 import com.greenharborlabs.l402.core.macaroon.L402VerificationContext;
 import com.greenharborlabs.l402.core.macaroon.Macaroon;
+import com.greenharborlabs.l402.core.macaroon.KeyMaterial;
 import com.greenharborlabs.l402.core.macaroon.MacaroonCrypto;
 import com.greenharborlabs.l402.core.macaroon.MacaroonIdentifier;
 import com.greenharborlabs.l402.core.macaroon.MacaroonVerificationException;
@@ -119,30 +120,29 @@ public final class L402Validator {
         }
 
         // 5. Verify macaroon signature (caveat verification happens inside)
-        byte[] rootKey = rootKeySb.value();
-        try {
-            rootKeySb.close();
-        } catch (Exception _) {
-            // SensitiveBytes.close() never throws
-        }
         Instant now = Instant.now();
-        L402VerificationContext context = L402VerificationContext.builder()
-                .serviceName(serviceName)
-                .currentTime(now)
-                .build();
-        try {
-            MacaroonVerifier.verify(credential.macaroon(), rootKey, caveatVerifiers, context);
-        } catch (MacaroonVerificationException e) {
-            throw new L402Exception(ErrorCode.INVALID_MACAROON,
-                    "Macaroon verification failed: " + e.getMessage(), tokenId);
-        } catch (L402Exception e) {
-            // Caveat verifiers throw L402Exception with the correct ErrorCode
-            // (EXPIRED_CREDENTIAL, INVALID_SERVICE) but without tokenId context.
-            // Re-throw with tokenId enriched if missing.
-            if (e.getTokenId() == null) {
-                throw new L402Exception(e.getErrorCode(), e.getMessage(), tokenId);
+        try (rootKeySb) {
+            byte[] rootKey = rootKeySb.value();
+            try {
+                L402VerificationContext context = L402VerificationContext.builder()
+                        .serviceName(serviceName)
+                        .currentTime(now)
+                        .build();
+                MacaroonVerifier.verify(credential.macaroon(), rootKey, caveatVerifiers, context);
+            } catch (MacaroonVerificationException e) {
+                throw new L402Exception(ErrorCode.INVALID_MACAROON,
+                        "Macaroon verification failed: " + e.getMessage(), tokenId);
+            } catch (L402Exception e) {
+                // Caveat verifiers throw L402Exception with the correct ErrorCode
+                // (EXPIRED_CREDENTIAL, INVALID_SERVICE) but without tokenId context.
+                // Re-throw with tokenId enriched if missing.
+                if (e.getTokenId() == null) {
+                    throw new L402Exception(e.getErrorCode(), e.getMessage(), tokenId);
+                }
+                throw e;
+            } finally {
+                KeyMaterial.zeroize(rootKey);
             }
-            throw e;
         }
 
         // 6. Verify preimage matches payment hash

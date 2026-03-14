@@ -469,6 +469,88 @@ class L402ValidatorTest {
         }
     }
 
+    @Nested
+    @DisplayName("root key lifecycle")
+    class RootKeyLifecycle {
+
+        @Test
+        @DisplayName("root key SensitiveBytes is destroyed after successful validation")
+        void rootKeyIsDestroyedAfterSuccessfulValidation() {
+            var issuedKeys = new java.util.concurrent.ConcurrentLinkedQueue<com.greenharborlabs.l402.core.macaroon.SensitiveBytes>();
+            RootKeyStore trackingStore = new RootKeyStore() {
+                @Override
+                public GenerationResult generateRootKey() {
+                    return rootKeyStore.generateRootKey();
+                }
+
+                @Override
+                public com.greenharborlabs.l402.core.macaroon.SensitiveBytes getRootKey(byte[] keyId) {
+                    var sb = rootKeyStore.getRootKey(keyId);
+                    if (sb != null) issuedKeys.add(sb);
+                    return sb;
+                }
+
+                @Override
+                public void revokeRootKey(byte[] keyId) {
+                    rootKeyStore.revokeRootKey(keyId);
+                }
+            };
+
+            L402Validator validator = new L402Validator(
+                    trackingStore, credentialStore, List.of(), SERVICE_NAME);
+            validator.validate(validAuthHeader);
+
+            assertThat(issuedKeys).hasSize(1);
+            assertThat(issuedKeys.peek().isDestroyed()).isTrue();
+        }
+
+        @Test
+        @DisplayName("root key SensitiveBytes is destroyed after failed validation")
+        void rootKeyIsDestroyedAfterFailedValidation() {
+            // Tamper the macaroon signature so verification fails
+            byte[] tamperedSig = macaroon.signature();
+            tamperedSig[0] = (byte) (tamperedSig[0] ^ 0xFF);
+            Macaroon tampered = new Macaroon(
+                    macaroon.identifier(), macaroon.location(), macaroon.caveats(), tamperedSig);
+            byte[] serialized = MacaroonSerializer.serializeV2(tampered);
+            String macaroonBase64 = Base64.getEncoder().encodeToString(serialized);
+            String preimageHex = HEX.formatHex(preimageBytes);
+            String header = "L402 " + macaroonBase64 + ":" + preimageHex;
+
+            var issuedKeys = new java.util.concurrent.ConcurrentLinkedQueue<com.greenharborlabs.l402.core.macaroon.SensitiveBytes>();
+            RootKeyStore trackingStore = new RootKeyStore() {
+                @Override
+                public GenerationResult generateRootKey() {
+                    return rootKeyStore.generateRootKey();
+                }
+
+                @Override
+                public com.greenharborlabs.l402.core.macaroon.SensitiveBytes getRootKey(byte[] keyId) {
+                    var sb = rootKeyStore.getRootKey(keyId);
+                    if (sb != null) issuedKeys.add(sb);
+                    return sb;
+                }
+
+                @Override
+                public void revokeRootKey(byte[] keyId) {
+                    rootKeyStore.revokeRootKey(keyId);
+                }
+            };
+
+            L402Validator validator = new L402Validator(
+                    trackingStore, credentialStore, List.of(), SERVICE_NAME);
+
+            try {
+                validator.validate(header);
+            } catch (L402Exception expected) {
+                // Expected — tampered signature
+            }
+
+            assertThat(issuedKeys).hasSize(1);
+            assertThat(issuedKeys.peek().isDestroyed()).isTrue();
+        }
+    }
+
     /** Creates a CredentialStore that captures the TTL passed to store(). */
     private CredentialStore ttlCapturingStore(AtomicLong capturedTtl) {
         return new CredentialStore() {
