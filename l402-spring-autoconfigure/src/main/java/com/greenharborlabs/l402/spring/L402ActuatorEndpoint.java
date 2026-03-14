@@ -27,6 +27,11 @@ import java.util.Map;
 public class L402ActuatorEndpoint {
 
     private final L402Properties properties;
+    /**
+     * The Lightning backend used for health checks. The auto-configuration wraps this
+     * with {@link CachingLightningBackendWrapper} by default, so {@code isHealthy()}
+     * calls return cached results and do not block on slow Lightning nodes.
+     */
     private final LightningBackend lightningBackend;
     private final L402EndpointRegistry endpointRegistry;
     private final CredentialStore credentialStore;
@@ -49,7 +54,13 @@ public class L402ActuatorEndpoint {
         var result = new LinkedHashMap<String, Object>();
         result.put("enabled", properties.isEnabled());
         result.put("backend", properties.getBackend());
-        result.put("backendHealthy", lightningBackend.isHealthy());
+        boolean healthy;
+        try {
+            healthy = lightningBackend.isHealthy();
+        } catch (Exception _) {
+            healthy = false;
+        }
+        result.put("backendHealthy", healthy);
         result.put("serviceName", properties.getServiceName());
         result.put("protectedEndpoints", buildProtectedEndpoints());
         result.put("credentials", buildCredentials());

@@ -29,8 +29,13 @@ public class L402Metrics {
                 .description("Currently cached credentials")
                 .register(registry);
 
-        Gauge.builder("l402.lightning.healthy", lightningBackend,
-                        backend -> backend.isHealthy() ? 1.0 : 0.0)
+        Gauge.builder("l402.lightning.healthy", lightningBackend, backend -> {
+                    try {
+                        return backend.isHealthy() ? 1.0 : 0.0;
+                    } catch (Exception e) {
+                        return 0.0;
+                    }
+                })
                 .description("1=healthy, 0=unhealthy")
                 .register(registry);
     }

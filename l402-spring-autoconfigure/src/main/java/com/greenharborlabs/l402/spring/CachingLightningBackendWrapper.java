@@ -20,7 +20,7 @@ public class CachingLightningBackendWrapper implements LightningBackend {
     private final LightningBackend delegate;
     private final long ttlNanos;
 
-    private volatile HealthSnapshot snapshot = new HealthSnapshot(false, 0);
+    private volatile HealthSnapshot snapshot;
 
     public CachingLightningBackendWrapper(LightningBackend delegate, Duration ttl) {
         if (delegate == null) {
@@ -48,7 +48,7 @@ public class CachingLightningBackendWrapper implements LightningBackend {
         long now = System.nanoTime();
         HealthSnapshot current = snapshot;
         // nanoTime can wrap, so use subtraction for correct elapsed calculation
-        if (current.atNanos() != 0 && (now - current.atNanos()) < ttlNanos) {
+        if (current != null && (now - current.atNanos()) < ttlNanos) {
             return current.healthy();
         }
         boolean healthy = delegate.isHealthy();

@@ -9,6 +9,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.health.contributor.Health;
 import org.springframework.boot.health.contributor.Status;
 
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicInteger;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -96,6 +99,37 @@ class L402LightningHealthIndicatorTest {
         }
 
         @Test
+        @DisplayName("concurrent calls do not stampede the backend")
+        void concurrentCallsDoNotStampede() throws InterruptedException {
+            var backend = new SlowCountingBackend(true, 50);
+            // TTL of 0 means cache is always expired, maximizing stampede potential
+            var indicator = new L402LightningHealthIndicator(backend, 0);
+
+            int threadCount = 10;
+            var startLatch = new CountDownLatch(1);
+            var doneLatch = new CountDownLatch(threadCount);
+
+            for (int i = 0; i < threadCount; i++) {
+                Thread.ofVirtual().start(() -> {
+                    try {
+                        startLatch.await();
+                        indicator.health();
+                    } catch (InterruptedException _) {
+                        Thread.currentThread().interrupt();
+                    } finally {
+                        doneLatch.countDown();
+                    }
+                });
+            }
+
+            startLatch.countDown();
+            doneLatch.await();
+
+            // With stampede protection, far fewer than 10 threads should hit the backend
+            assertThat(backend.callCount.get()).isLessThan(threadCount);
+        }
+
+        @Test
         @DisplayName("reflects updated backend status after TTL expires")
         void reflectsUpdatedStatusAfterTtl() {
             var backend = new CountingBackend(true);
@@ -135,6 +169,28 @@ class L402LightningHealthIndicatorTest {
         @Override
         public boolean isHealthy() {
             return healthy;
+        }
+    }
+
+    static class SlowCountingBackend extends ControllableBackend {
+
+        final AtomicInteger callCount = new AtomicInteger();
+        private final long delayMillis;
+
+        SlowCountingBackend(boolean healthy, long delayMillis) {
+            super(healthy);
+            this.delayMillis = delayMillis;
+        }
+
+        @Override
+        public boolean isHealthy() {
+            callCount.incrementAndGet();
+            try {
+                Thread.sleep(delayMillis);
+            } catch (InterruptedException _) {
+                Thread.currentThread().interrupt();
+            }
+            return super.isHealthy();
         }
     }
 

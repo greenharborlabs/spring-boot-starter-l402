@@ -1,6 +1,7 @@
 package com.greenharborlabs.l402.spring;
 
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -21,6 +22,7 @@ public class TokenBucketRateLimiter implements L402RateLimiter {
     private final int maxTokens;
     private final double refillRatePerSecond;
     private final ConcurrentHashMap<String, Bucket> buckets = new ConcurrentHashMap<>();
+    private final AtomicInteger bucketCount = new AtomicInteger();
     private final AtomicLong callCounter = new AtomicLong();
 
     /**
@@ -50,10 +52,11 @@ public class TokenBucketRateLimiter implements L402RateLimiter {
         buckets.compute(key, (_, existing) -> {
             long now = System.nanoTime();
             if (existing == null) {
-                // Atomic size check: reject new keys at capacity to prevent OOM
-                if (buckets.size() >= MAX_BUCKETS) {
+                // Use AtomicInteger for reliable capacity check (avoids TOCTOU with ConcurrentHashMap.size())
+                if (bucketCount.get() >= MAX_BUCKETS) {
                     return null; // don't create bucket
                 }
+                bucketCount.incrementAndGet();
                 // New bucket: start full, consume one token immediately
                 allowed[0] = true;
                 return new Bucket(maxTokens - 1.0, now);
@@ -80,8 +83,13 @@ public class TokenBucketRateLimiter implements L402RateLimiter {
         long now = System.nanoTime();
         // A bucket is stale if it has been idle long enough to fully refill twice over
         double staleThresholdNanos = (maxTokens / refillRatePerSecond) * 2_000_000_000.0;
-        buckets.entrySet().removeIf(entry ->
-                (now - entry.getValue().lastRefillNanos) > staleThresholdNanos);
+        buckets.entrySet().removeIf(entry -> {
+            boolean stale = (now - entry.getValue().lastRefillNanos) > staleThresholdNanos;
+            if (stale) {
+                bucketCount.decrementAndGet();
+            }
+            return stale;
+        });
     }
 
     private static final class Bucket {

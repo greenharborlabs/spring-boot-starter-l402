@@ -177,6 +177,7 @@ class L402MetricsTest {
     @BeforeEach
     void resetStubs() {
         ((StubLightningBackend) lightningBackend).setHealthy(true);
+        ((StubLightningBackend) lightningBackend).setThrowOnHealthCheck(false);
         ((StubLightningBackend) lightningBackend).setNextInvoice(createStubInvoice());
     }
 
@@ -431,6 +432,34 @@ class L402MetricsTest {
             assertThat(gaugeValue).isNotNull();
             assertThat(gaugeValue).isEqualTo(0.0);
         }
+
+        @Test
+        @DisplayName("l402.lightning.healthy gauge reports 0.0 when isHealthy() throws exception")
+        void lightningHealthyGaugeReportsZeroOnException() {
+            ((StubLightningBackend) lightningBackend).setThrowOnHealthCheck(true);
+
+            Double gaugeValue = gaugeValue("l402.lightning.healthy");
+            assertThat(gaugeValue).isNotNull();
+            assertThat(gaugeValue).isEqualTo(0.0);
+        }
+
+        @Test
+        @DisplayName("l402.lightning.healthy gauge recovers to 1.0 after exception clears")
+        void lightningHealthyGaugeRecoversAfterException() {
+            ((StubLightningBackend) lightningBackend).setThrowOnHealthCheck(true);
+
+            Double duringException = gaugeValue("l402.lightning.healthy");
+            assertThat(duringException).isNotNull();
+            assertThat(duringException).isEqualTo(0.0);
+
+            // Backend recovers
+            ((StubLightningBackend) lightningBackend).setThrowOnHealthCheck(false);
+            ((StubLightningBackend) lightningBackend).setHealthy(true);
+
+            Double afterRecovery = gaugeValue("l402.lightning.healthy");
+            assertThat(afterRecovery).isNotNull();
+            assertThat(afterRecovery).isEqualTo(1.0);
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -547,10 +576,15 @@ class L402MetricsTest {
     static class StubLightningBackend implements LightningBackend {
 
         private volatile boolean healthy = true;
+        private volatile boolean throwOnHealthCheck = false;
         private volatile Invoice nextInvoice;
 
         void setHealthy(boolean healthy) {
             this.healthy = healthy;
+        }
+
+        void setThrowOnHealthCheck(boolean throwOnHealthCheck) {
+            this.throwOnHealthCheck = throwOnHealthCheck;
         }
 
         void setNextInvoice(Invoice invoice) {
@@ -582,6 +616,9 @@ class L402MetricsTest {
 
         @Override
         public boolean isHealthy() {
+            if (throwOnHealthCheck) {
+                throw new RuntimeException("Lightning backend health check failed");
+            }
             return healthy;
         }
     }
