@@ -2,6 +2,8 @@ plugins {
     id("org.springframework.boot") version "4.0.3" apply false
     id("io.spring.dependency-management") version "1.1.7" apply false
     id("jacoco-report-aggregation")
+    id("io.github.gradle-nexus.publish-plugin") version "2.0.0"
+    id("org.cyclonedx.bom") version "2.1.0" apply false
 }
 
 val springBootVersion = "4.0.3"
@@ -18,6 +20,21 @@ allprojects {
 
     repositories {
         mavenCentral()
+    }
+}
+
+nexusPublishing {
+    repositories {
+        sonatype {
+            nexusUrl.set(uri("https://s01.oss.sonatype.org/service/local/"))
+            snapshotRepositoryUrl.set(uri("https://s01.oss.sonatype.org/content/repositories/snapshots/"))
+            username.set(providers.gradleProperty("sonatypeUsername")
+                .orElse(providers.environmentVariable("SONATYPE_USERNAME"))
+                .orNull)
+            password.set(providers.gradleProperty("sonatypePassword")
+                .orElse(providers.environmentVariable("SONATYPE_PASSWORD"))
+                .orNull)
+        }
     }
 }
 
@@ -64,11 +81,16 @@ subprojects {
         }
     }
 
+    val coverageMinimum = when (project.name) {
+        "l402-core" -> "0.80"
+        "l402-example-app" -> "0.40"
+        else -> "0.60"
+    }
     tasks.withType<JacocoCoverageVerification> {
         violationRules {
             rule {
                 limit {
-                    minimum = "0.40".toBigDecimal()
+                    minimum = coverageMinimum.toBigDecimal()
                 }
             }
         }
@@ -90,6 +112,11 @@ subprojects {
     extra["jacksonVersion"] = jacksonVersion
     extra["assertjVersion"] = assertjVersion
     extra["mockWebServerVersion"] = mockWebServerVersion
+
+    // CycloneDX SBOM generation (skip example app and starter aggregator)
+    if (project.name != "l402-example-app" && project.name != "l402-spring-boot-starter") {
+        apply(plugin = "org.cyclonedx.bom")
+    }
 
     // Publishing configuration (skip example app)
     if (project.name != "l402-example-app") {
@@ -128,18 +155,6 @@ subprojects {
                                 developerConnection.set("scm:git:ssh://github.com/greenharborlabs/spring-boot-starter-l402.git")
                                 url.set("https://github.com/greenharborlabs/spring-boot-starter-l402")
                             }
-                        }
-                    }
-                }
-                repositories {
-                    maven {
-                        name = "sonatype"
-                        val releasesUrl = "https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/"
-                        val snapshotsUrl = "https://s01.oss.sonatype.org/content/repositories/snapshots/"
-                        url = uri(if (version.toString().endsWith("SNAPSHOT")) snapshotsUrl else releasesUrl)
-                        credentials {
-                            username = findProperty("sonatypeUsername") as String? ?: System.getenv("SONATYPE_USERNAME") ?: ""
-                            password = findProperty("sonatypePassword") as String? ?: System.getenv("SONATYPE_PASSWORD") ?: ""
                         }
                     }
                 }

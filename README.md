@@ -2,7 +2,8 @@
 
 A Spring Boot starter that adds [L402](https://docs.lightning.engineering/the-lightning-network/l402) (Lightning HTTP 402) payment-gated authentication to your Spring Boot APIs. Protect any endpoint with a single annotation and get paid in Bitcoin over the Lightning Network.
 
-[![Build](https://github.com/greenharborlabs/spring-boot-starter-l402/actions/workflows/build.yml/badge.svg)](https://github.com/greenharborlabs/spring-boot-starter-l402/actions/workflows/build.yml)
+[![CI](https://github.com/greenharborlabs/spring-boot-starter-l402/actions/workflows/ci.yml/badge.svg)](https://github.com/greenharborlabs/spring-boot-starter-l402/actions/workflows/ci.yml)
+[![Maven Central](https://img.shields.io/maven-central/v/com.greenharborlabs/l402-spring-boot-starter)](https://central.sonatype.com/artifact/com.greenharborlabs/l402-spring-boot-starter)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Java 25](https://img.shields.io/badge/Java-25-orange.svg)](https://openjdk.org/projects/jdk/25/)
 [![Spring Boot 4.0](https://img.shields.io/badge/Spring%20Boot-4.0.3-green.svg)](https://spring.io/projects/spring-boot)

@@ -37,16 +37,20 @@ RUN ./gradlew :l402-example-app:bootJar --no-daemon -x test
 # Stage 2: Runtime
 FROM eclipse-temurin:25-jre
 
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Run as non-root user
 RUN groupadd --system appgroup && useradd --system --gid appgroup appuser
 
 COPY --from=build /workspace/l402-example-app/build/libs/*-SNAPSHOT.jar app.jar
+COPY l402-example-app/docker-entrypoint.sh /app/docker-entrypoint.sh
 
+RUN chmod +x /app/docker-entrypoint.sh && chown appuser:appgroup /app/docker-entrypoint.sh
 RUN chown appuser:appgroup app.jar
 USER appuser
 
 EXPOSE 8080
 
-ENTRYPOINT ["java", "-jar", "app.jar"]
+ENTRYPOINT ["bash", "/app/docker-entrypoint.sh"]

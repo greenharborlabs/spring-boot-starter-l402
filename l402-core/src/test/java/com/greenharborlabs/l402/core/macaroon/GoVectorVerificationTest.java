@@ -135,6 +135,38 @@ class GoVectorVerificationTest {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("allVectors")
+    @DisplayName("Deserialization round-trip preserves all fields")
+    void deserializationRoundTrip(VectorData vector) {
+        Macaroon deserialized = MacaroonSerializer.deserializeV2(vector.expectedSerializedV2());
+
+        assertThat(HEX.formatHex(deserialized.identifier()))
+                .as("identifier for: %s", vector.description())
+                .isEqualTo(HEX.formatHex(vector.identifier()));
+
+        assertThat(deserialized.location())
+                .as("location for: %s", vector.description())
+                .isEqualTo(vector.location());
+
+        List<String> deserializedCaveatStrings = deserialized.caveats().stream()
+                .map(Caveat::toString)
+                .toList();
+        assertThat(deserializedCaveatStrings)
+                .as("caveats for: %s", vector.description())
+                .containsExactlyElementsOf(vector.caveatStrings());
+
+        assertThat(HEX.formatHex(deserialized.signature()))
+                .as("signature for: %s", vector.description())
+                .isEqualTo(HEX.formatHex(vector.expectedSignature()));
+
+        // Re-serialize and verify byte-level equality
+        byte[] reserialized = MacaroonSerializer.serializeV2(deserialized);
+        assertThat(HEX.formatHex(reserialized))
+                .as("re-serialization for: %s", vector.description())
+                .isEqualTo(HEX.formatHex(vector.expectedSerializedV2()));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("allVectors")
     @DisplayName("Identifier is exactly 66 bytes")
     void identifierLength(VectorData vector) {
         assertThat(vector.identifier())
