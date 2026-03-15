@@ -19,7 +19,7 @@ class L402EndpointRegistryTest {
         var registry = new L402EndpointRegistry(CUSTOM_DEFAULT_TIMEOUT);
 
         // Register an endpoint config with an explicit timeout to verify it is preserved
-        registry.register(new L402EndpointConfig("GET", "/explicit", 10, 300, "explicit timeout", ""));
+        registry.register(new L402EndpointConfig("GET", "/explicit", 10, 300, "explicit timeout", "", ""));
 
         // Verify explicit timeout is not changed
         L402EndpointConfig explicitConfig = registry.findConfig("GET", "/explicit");
@@ -35,7 +35,7 @@ class L402EndpointRegistryTest {
         // Register directly with -1 sentinel via the public register method
         // (sentinel resolution happens in toConfig during annotation scanning,
         // not in register — so this tests the fallback constructor is valid)
-        registry.register(new L402EndpointConfig("GET", "/test", 10, 3600, "", ""));
+        registry.register(new L402EndpointConfig("GET", "/test", 10, 3600, "", "", ""));
 
         L402EndpointConfig config = registry.findConfig("GET", "/test");
         assertThat(config).isNotNull();
@@ -55,8 +55,20 @@ class L402EndpointRegistryTest {
         var registry = new L402EndpointRegistry(CUSTOM_DEFAULT_TIMEOUT);
         assertThat(registry.size()).isZero();
 
-        registry.register(new L402EndpointConfig("GET", "/a", 10, 600, "", ""));
-        registry.register(new L402EndpointConfig("POST", "/b", 20, 1200, "", ""));
+        registry.register(new L402EndpointConfig("GET", "/a", 10, 600, "", "", ""));
+        registry.register(new L402EndpointConfig("POST", "/b", 20, 1200, "", "", ""));
         assertThat(registry.size()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("registered endpoint with capability is retrievable via findConfig")
+    void registeredCapabilityIsPreserved() {
+        var registry = new L402EndpointRegistry(CUSTOM_DEFAULT_TIMEOUT);
+
+        registry.register(new L402EndpointConfig("GET", "/api/analyze", 50, 600, "Analysis endpoint", "", "analyze"));
+
+        L402EndpointConfig config = registry.findConfig("GET", "/api/analyze");
+        assertThat(config).isNotNull();
+        assertThat(config.capability()).isEqualTo("analyze");
     }
 }

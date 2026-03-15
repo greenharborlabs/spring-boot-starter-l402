@@ -9,6 +9,7 @@ package com.greenharborlabs.l402.spring;
  * @param timeoutSeconds   credential TTL in seconds
  * @param description      human-readable description
  * @param pricingStrategy  name of the pricing strategy bean, or empty for fixed price
+ * @param capability       capability required for this endpoint, or empty for no specific capability
  */
 public record L402EndpointConfig(
         String httpMethod,
@@ -16,6 +17,7 @@ public record L402EndpointConfig(
         long priceSats,
         long timeoutSeconds,
         String description,
-        String pricingStrategy
+        String pricingStrategy,
+        String capability
 ) {
 }

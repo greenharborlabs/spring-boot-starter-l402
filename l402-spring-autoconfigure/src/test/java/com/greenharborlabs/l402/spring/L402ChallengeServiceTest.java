@@ -59,7 +59,7 @@ class L402ChallengeServiceTest {
         request = new MockHttpServletRequest("GET", "/api/protected");
         request.setRemoteAddr("127.0.0.1");
 
-        config = new L402EndpointConfig("GET", "/api/protected", PRICE_SATS, TIMEOUT_SECONDS, DESCRIPTION, "");
+        config = new L402EndpointConfig("GET", "/api/protected", PRICE_SATS, TIMEOUT_SECONDS, DESCRIPTION, "", "");
     }
 
     // -----------------------------------------------------------------------
@@ -202,7 +202,7 @@ class L402ChallengeServiceTest {
             when(applicationContext.getBean("myStrategy", L402PricingStrategy.class)).thenReturn(strategy);
 
             L402EndpointConfig configWithStrategy = new L402EndpointConfig(
-                    "GET", "/api/protected", PRICE_SATS, TIMEOUT_SECONDS, DESCRIPTION, "myStrategy");
+                    "GET", "/api/protected", PRICE_SATS, TIMEOUT_SECONDS, DESCRIPTION, "myStrategy", "");
 
             L402ChallengeService service = createService(createTrackingRootKeyStore());
             L402ChallengeResult result = service.createChallenge(request, configWithStrategy);
@@ -221,7 +221,7 @@ class L402ChallengeServiceTest {
                     .thenThrow(new org.springframework.beans.factory.NoSuchBeanDefinitionException("missing"));
 
             L402EndpointConfig configWithStrategy = new L402EndpointConfig(
-                    "GET", "/api/protected", PRICE_SATS, TIMEOUT_SECONDS, DESCRIPTION, "missing");
+                    "GET", "/api/protected", PRICE_SATS, TIMEOUT_SECONDS, DESCRIPTION, "missing", "");
 
             L402ChallengeService service = createService(createTrackingRootKeyStore());
             L402ChallengeResult result = service.createChallenge(request, configWithStrategy);

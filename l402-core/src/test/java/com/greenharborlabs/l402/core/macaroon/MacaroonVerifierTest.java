@@ -1,5 +1,8 @@
 package com.greenharborlabs.l402.core.macaroon;
 
+import com.greenharborlabs.l402.core.protocol.ErrorCode;
+import com.greenharborlabs.l402.core.protocol.L402Exception;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -463,6 +466,130 @@ class MacaroonVerifierTest {
             assertThatCode(() ->
                     MacaroonVerifier.verifyCaveats(caveats, List.of(capturingVerifier), specificContext)
             ).doesNotThrowAnyException();
+        }
+    }
+
+    @Nested
+    @DisplayName("missing capabilities caveat enforcement")
+    class MissingCapabilitiesCaveatEnforcement {
+
+        @Test
+        @DisplayName("rejects macaroon missing capabilities caveat when capability is required")
+        void rejectsMissingCapabilitiesCaveat() {
+            L402VerificationContext ctx = L402VerificationContext.builder()
+                    .serviceName("test-service")
+                    .requestedCapability("search")
+                    .build();
+
+            List<Caveat> caveats = List.of(
+                    new Caveat("services", "test-service:0"),
+                    new Caveat("test-service_valid_until", "2000000000")
+            );
+            List<CaveatVerifier> verifiers = List.of(
+                    acceptingVerifier("services"),
+                    acceptingVerifier("test-service_valid_until")
+            );
+
+            assertThatThrownBy(() ->
+                    MacaroonVerifier.verifyCaveats(caveats, verifiers, ctx)
+            ).isInstanceOf(L402Exception.class)
+             .satisfies(ex -> {
+                 L402Exception l402Ex = (L402Exception) ex;
+                 assertThatCode(() -> {}).doesNotThrowAnyException(); // no-op
+                 org.assertj.core.api.Assertions.assertThat(l402Ex.getErrorCode()).isEqualTo(ErrorCode.INVALID_SERVICE);
+             })
+             .hasMessageContaining("missing required capabilities caveat")
+             .hasMessageContaining("search");
+        }
+
+        @Test
+        @DisplayName("passes when capabilities caveat is present and capability is required")
+        void passesWithCapabilitiesCaveatPresent() {
+            L402VerificationContext ctx = L402VerificationContext.builder()
+                    .serviceName("test-service")
+                    .requestedCapability("search")
+                    .build();
+
+            List<Caveat> caveats = List.of(
+                    new Caveat("services", "test-service:0"),
+                    new Caveat("test-service_capabilities", "search,analyze")
+            );
+            List<CaveatVerifier> verifiers = List.of(
+                    acceptingVerifier("services"),
+                    acceptingVerifier("test-service_capabilities")
+            );
+
+            assertThatCode(() ->
+                    MacaroonVerifier.verifyCaveats(caveats, verifiers, ctx)
+            ).doesNotThrowAnyException();
+        }
+
+        @Test
+        @DisplayName("passes when no capability is requested and no capabilities caveat present")
+        void passesNoCapabilityRequestedNoCaveat() {
+            L402VerificationContext ctx = L402VerificationContext.builder()
+                    .serviceName("test-service")
+                    .build();
+
+            List<Caveat> caveats = List.of(
+                    new Caveat("services", "test-service:0")
+            );
+            List<CaveatVerifier> verifiers = List.of(acceptingVerifier("services"));
+
+            assertThatCode(() ->
+                    MacaroonVerifier.verifyCaveats(caveats, verifiers, ctx)
+            ).doesNotThrowAnyException();
+        }
+
+        @Test
+        @DisplayName("passes when no capability is requested but capabilities caveat is present")
+        void passesNoCapabilityRequestedWithCaveat() {
+            L402VerificationContext ctx = L402VerificationContext.builder()
+                    .serviceName("test-service")
+                    .build();
+
+            List<Caveat> caveats = List.of(
+                    new Caveat("services", "test-service:0"),
+                    new Caveat("test-service_capabilities", "search")
+            );
+            List<CaveatVerifier> verifiers = List.of(
+                    acceptingVerifier("services"),
+                    acceptingVerifier("test-service_capabilities")
+            );
+
+            assertThatCode(() ->
+                    MacaroonVerifier.verifyCaveats(caveats, verifiers, ctx)
+            ).doesNotThrowAnyException();
+        }
+
+        @Test
+        @DisplayName("rejects on cached path (direct verifyCaveats call) when capabilities caveat missing")
+        void rejectsOnCachedPath() {
+            // This simulates the cached credential path where verifyCaveats is called
+            // directly without going through verify() first
+            L402VerificationContext ctx = L402VerificationContext.builder()
+                    .serviceName("test-service")
+                    .requestedCapability("write")
+                    .build();
+
+            List<Caveat> caveats = List.of(
+                    new Caveat("services", "test-service:0"),
+                    new Caveat("test-service_valid_until", "2000000000")
+            );
+            List<CaveatVerifier> verifiers = List.of(
+                    new ServicesCaveatVerifier(),
+                    new ValidUntilCaveatVerifier("test-service")
+            );
+
+            assertThatThrownBy(() ->
+                    MacaroonVerifier.verifyCaveats(caveats, verifiers, ctx)
+            ).isInstanceOf(L402Exception.class)
+             .satisfies(ex -> {
+                 L402Exception l402Ex = (L402Exception) ex;
+                 org.assertj.core.api.Assertions.assertThat(l402Ex.getErrorCode()).isEqualTo(ErrorCode.INVALID_SERVICE);
+             })
+             .hasMessageContaining("missing required capabilities caveat")
+             .hasMessageContaining("write");
         }
     }
 }

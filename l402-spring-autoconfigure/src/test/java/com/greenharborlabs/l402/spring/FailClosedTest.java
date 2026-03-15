@@ -100,7 +100,7 @@ class FailClosedTest {
         L402EndpointRegistry l402EndpointRegistry() {
             var registry = new L402EndpointRegistry();
             registry.register(
-                    new L402EndpointConfig("GET", PROTECTED_PATH, PRICE_SATS, 600, "Test protected endpoint", "")
+                    new L402EndpointConfig("GET", PROTECTED_PATH, PRICE_SATS, 600, "Test protected endpoint", "", "")
             );
             return registry;
         }

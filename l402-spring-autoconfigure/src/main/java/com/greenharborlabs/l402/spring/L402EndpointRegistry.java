@@ -150,7 +150,8 @@ public class L402EndpointRegistry {
                 annotation.priceSats(),
                 timeout,
                 annotation.description(),
-                annotation.pricingStrategy()
+                annotation.pricingStrategy(),
+                annotation.capability()
         );
     }
 

@@ -36,7 +36,7 @@ class L402AuthenticationEntryPointTest {
     private MockHttpServletResponse response;
 
     private static final L402EndpointConfig TEST_CONFIG = new L402EndpointConfig(
-            "GET", "/api/protected", 100, 3600, "Test endpoint", "");
+            "GET", "/api/protected", 100, 3600, "Test endpoint", "", "");
 
     private static final L402ChallengeResult TEST_RESULT = new L402ChallengeResult(
             "bWFjYXJvb24=",

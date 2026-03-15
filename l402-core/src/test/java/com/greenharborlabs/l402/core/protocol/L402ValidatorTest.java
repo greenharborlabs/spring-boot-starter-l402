@@ -714,12 +714,15 @@ class L402ValidatorTest {
             };
 
             List<Caveat> caveats = List.of(
-                    new Caveat(SERVICE_NAME + "_marker", "test-value")
+                    new Caveat(SERVICE_NAME + "_marker", "test-value"),
+                    new Caveat(SERVICE_NAME + "_capabilities", "custom-cap")
             );
             String header = buildAuthHeader(caveats);
 
             L402Validator validator = new L402Validator(
-                    rootKeyStore, credentialStore, List.of(capturingVerifier), SERVICE_NAME);
+                    rootKeyStore, credentialStore,
+                    List.of(capturingVerifier, new CapabilitiesCaveatVerifier(SERVICE_NAME)),
+                    SERVICE_NAME);
 
             L402VerificationContext externalContext = L402VerificationContext.builder()
                     .serviceName(SERVICE_NAME)

@@ -3,6 +3,7 @@ package com.greenharborlabs.l402.spring;
 import com.greenharborlabs.l402.core.credential.CredentialStore;
 import com.greenharborlabs.l402.core.lightning.LightningBackend;
 import com.greenharborlabs.l402.core.macaroon.CaveatVerifier;
+import com.greenharborlabs.l402.core.macaroon.L402VerificationContext;
 import com.greenharborlabs.l402.core.macaroon.RootKeyStore;
 import com.greenharborlabs.l402.core.protocol.ErrorCode;
 import com.greenharborlabs.l402.core.protocol.L402Credential;
@@ -234,7 +235,13 @@ public class L402SecurityFilter implements Filter {
                 && (authHeader.startsWith(L402_PREFIX) || authHeader.startsWith(LSAT_PREFIX))) {
             // Header looks like an L402/LSAT credential — attempt validation (purely local, no Lightning needed)
             try {
-                L402Validator.ValidationResult result = validator.validate(authHeader);
+                // Build per-request context with capability from endpoint config
+                L402VerificationContext context = L402VerificationContext.builder()
+                        .serviceName(serviceName)
+                        .currentTime(Instant.now())
+                        .requestedCapability(config.capability().isEmpty() ? null : config.capability())
+                        .build();
+                L402Validator.ValidationResult result = validator.validate(authHeader, context);
                 L402Credential credential = result.credential();
 
                 // Success: add expiry header and pass through

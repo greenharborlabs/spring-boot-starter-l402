@@ -6,6 +6,7 @@ import com.greenharborlabs.l402.core.lightning.InvoiceStatus;
 import com.greenharborlabs.l402.core.lightning.LightningBackend;
 import com.greenharborlabs.l402.core.lightning.PaymentPreimage;
 import com.greenharborlabs.l402.core.macaroon.Caveat;
+import com.greenharborlabs.l402.core.macaroon.CapabilitiesCaveatVerifier;
 import com.greenharborlabs.l402.core.macaroon.CaveatVerifier;
 import com.greenharborlabs.l402.core.macaroon.L402VerificationContext;
 import com.greenharborlabs.l402.core.macaroon.Macaroon;
@@ -75,6 +76,7 @@ class L402SecurityFilterTest {
     private static final HexFormat HEX = HexFormat.of();
     private static final long PRICE_SATS = 10;
     private static final String PROTECTED_PATH = "/api/protected";
+    private static final String CAPABILITY_PROTECTED_PATH = "/api/capability-protected";
     private static final String PUBLIC_PATH = "/api/public";
     private static final String SERVICE_NAME = "test-service";
     private static final long TIMEOUT_SECONDS = 600;
@@ -117,14 +119,21 @@ class L402SecurityFilterTest {
 
         @Bean
         List<CaveatVerifier> caveatVerifiers() {
-            return List.of(new ServicesCaveatVerifier(), new ValidUntilCaveatVerifier("test-service"));
+            return List.of(
+                    new ServicesCaveatVerifier(),
+                    new ValidUntilCaveatVerifier("test-service"),
+                    new CapabilitiesCaveatVerifier("test-service")
+            );
         }
 
         @Bean
         L402EndpointRegistry l402EndpointRegistry() {
             var registry = new L402EndpointRegistry();
             registry.register(
-                    new L402EndpointConfig("GET", PROTECTED_PATH, PRICE_SATS, 600, "Test protected endpoint", "")
+                    new L402EndpointConfig("GET", PROTECTED_PATH, PRICE_SATS, 600, "Test protected endpoint", "", "")
+            );
+            registry.register(
+                    new L402EndpointConfig("GET", CAPABILITY_PROTECTED_PATH, PRICE_SATS, 600, "Capability protected endpoint", "", "search")
             );
             return registry;
         }
@@ -172,6 +181,12 @@ class L402SecurityFilterTest {
         @GetMapping(PROTECTED_PATH)
         String protectedEndpoint() {
             return "protected-content";
+        }
+
+        @L402Protected(priceSats = 10, description = "Capability protected endpoint", capability = "search")
+        @GetMapping(CAPABILITY_PROTECTED_PATH)
+        String capabilityProtectedEndpoint() {
+            return "capability-protected-content";
         }
 
         @GetMapping(PUBLIC_PATH)
@@ -650,6 +665,62 @@ class L402SecurityFilterTest {
         }
     }
 
+    @Nested
+    @DisplayName("capability enforcement")
+    class CapabilityEnforcement {
+
+        @BeforeEach
+        void setUp() {
+            ((StubLightningBackend) lightningBackend).setHealthy(true);
+            ((StubLightningBackend) lightningBackend).setNextInvoice(createStubInvoice());
+        }
+
+        @Test
+        @DisplayName("credential with matching capability passes on capability-protected endpoint")
+        void matchingCapabilityPasses() throws Exception {
+            String authHeader = mintCredentialWithCaveats(caveatsWithCapabilities("search,analyze"));
+
+            mockMvc.perform(get(CAPABILITY_PROTECTED_PATH)
+                            .header("Authorization", authHeader))
+                    .andExpect(status().isOk())
+                    .andExpect(content().string("capability-protected-content"));
+        }
+
+        @Test
+        @DisplayName("credential without matching capability is rejected on capability-protected endpoint")
+        void missingCapabilityRejected() throws Exception {
+            String authHeader = mintCredentialWithCaveats(caveatsWithCapabilities("analyze"));
+
+            mockMvc.perform(get(CAPABILITY_PROTECTED_PATH)
+                            .header("Authorization", authHeader))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.error", is("INVALID_SERVICE")));
+        }
+
+        @Test
+        @DisplayName("credential without capabilities caveat is rejected on capability-protected endpoint")
+        void credentialWithoutCapabilitiesCaveatRejectedOnCapabilityEndpoint() throws Exception {
+            String authHeader = mintCredentialWithCaveats(validCaveats());
+
+            mockMvc.perform(get(CAPABILITY_PROTECTED_PATH)
+                            .header("Authorization", authHeader))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.error", is("INVALID_SERVICE")));
+        }
+
+        @Test
+        @DisplayName("credential without capabilities caveat passes on endpoint with empty capability")
+        void emptyCapabilityPermissive() throws Exception {
+            // Use the existing /api/protected endpoint which has capability = ""
+            String authHeader = mintCredentialWithCaveats(validCaveats());
+
+            mockMvc.perform(get(PROTECTED_PATH)
+                            .header("Authorization", authHeader))
+                    .andExpect(status().isOk())
+                    .andExpect(content().string("protected-content"));
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Test helpers
     // -----------------------------------------------------------------------
@@ -692,6 +763,30 @@ class L402SecurityFilterTest {
                 new Caveat("services", "wrong-service:0"),
                 new Caveat("wrong-service_valid_until", String.valueOf(validUntil.getEpochSecond()))
         );
+    }
+
+    private static List<Caveat> caveatsWithCapabilities(String capabilities) {
+        Instant validUntil = Instant.now().plusSeconds(TIMEOUT_SECONDS);
+        return List.of(
+                new Caveat("services", SERVICE_NAME + ":0"),
+                new Caveat(SERVICE_NAME + "_valid_until", String.valueOf(validUntil.getEpochSecond())),
+                new Caveat(SERVICE_NAME + "_capabilities", capabilities)
+        );
+    }
+
+    private static String mintCredentialWithCaveats(List<Caveat> caveats) {
+        byte[] preimage = new byte[32];
+        new SecureRandom().nextBytes(preimage);
+        byte[] paymentHash = sha256(preimage);
+        byte[] tokenId = new byte[32];
+        new SecureRandom().nextBytes(tokenId);
+
+        MacaroonIdentifier identifier = new MacaroonIdentifier(0, paymentHash, tokenId);
+        Macaroon macaroon = MacaroonMinter.mint(ROOT_KEY, identifier, null, caveats);
+        byte[] serialized = MacaroonSerializer.serializeV2(macaroon);
+        String macaroonBase64 = Base64.getEncoder().encodeToString(serialized);
+        String preimageHex = HEX.formatHex(preimage);
+        return "L402 " + macaroonBase64 + ":" + preimageHex;
     }
 
     private static byte[] sha256(byte[] input) {

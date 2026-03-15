@@ -1,5 +1,8 @@
 package com.greenharborlabs.l402.core.macaroon;
 
+import com.greenharborlabs.l402.core.protocol.ErrorCode;
+import com.greenharborlabs.l402.core.protocol.L402Exception;
+
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
@@ -82,6 +85,19 @@ public final class MacaroonVerifier {
             lastSeenByKey.put(caveat.key(), caveat);
 
             verifier.verify(caveat, context);
+        }
+
+        // Post-loop enforcement: if a capability is required, the macaroon MUST contain
+        // a capabilities caveat. Without this check, a macaroon lacking the caveat
+        // entirely would bypass capability enforcement.
+        String requestedCapability = context.getRequestedCapability();
+        if (requestedCapability != null && context.getServiceName() != null) {
+            String capabilitiesKey = context.getServiceName() + "_capabilities";
+            if (!lastSeenByKey.containsKey(capabilitiesKey)) {
+                throw new L402Exception(ErrorCode.INVALID_SERVICE,
+                        "Macaroon missing required capabilities caveat for capability '"
+                                + requestedCapability + "'", null);
+            }
         }
     }
 

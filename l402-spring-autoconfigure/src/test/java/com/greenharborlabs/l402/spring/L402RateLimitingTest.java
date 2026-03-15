@@ -280,7 +280,7 @@ class L402RateLimitingTest {
         L402EndpointRegistry l402EndpointRegistry() {
             var registry = new L402EndpointRegistry();
             registry.register(
-                    new L402EndpointConfig("GET", PROTECTED_PATH, 10, TIMEOUT_SECONDS, "Rate limited endpoint", "")
+                    new L402EndpointConfig("GET", PROTECTED_PATH, 10, TIMEOUT_SECONDS, "Rate limited endpoint", "", "")
             );
             return registry;
         }
@@ -352,7 +352,7 @@ class L402RateLimitingTest {
         L402EndpointRegistry l402EndpointRegistry() {
             var registry = new L402EndpointRegistry();
             registry.register(
-                    new L402EndpointConfig("GET", PROTECTED_PATH, 10, TIMEOUT_SECONDS, "Rate limited endpoint", "")
+                    new L402EndpointConfig("GET", PROTECTED_PATH, 10, TIMEOUT_SECONDS, "Rate limited endpoint", "", "")
             );
             return registry;
         }
@@ -419,7 +419,7 @@ class L402RateLimitingTest {
         L402EndpointRegistry l402EndpointRegistry() {
             var registry = new L402EndpointRegistry();
             registry.register(
-                    new L402EndpointConfig("GET", PROTECTED_PATH, 10, TIMEOUT_SECONDS, "Rate limited endpoint", "")
+                    new L402EndpointConfig("GET", PROTECTED_PATH, 10, TIMEOUT_SECONDS, "Rate limited endpoint", "", "")
             );
             return registry;
         }
@@ -495,7 +495,7 @@ class L402RateLimitingTest {
         L402EndpointRegistry l402EndpointRegistry() {
             var registry = new L402EndpointRegistry();
             registry.register(
-                    new L402EndpointConfig("GET", PROTECTED_PATH, 10, TIMEOUT_SECONDS, "Rate limited endpoint", "")
+                    new L402EndpointConfig("GET", PROTECTED_PATH, 10, TIMEOUT_SECONDS, "Rate limited endpoint", "", "")
             );
             return registry;
         }

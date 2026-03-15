@@ -39,4 +39,10 @@ public @interface L402Protected {
      * the default (fixed price from {@link #priceSats()}).
      */
     String pricingStrategy() default "";
+
+    /**
+     * Capability required for this endpoint. An empty string indicates
+     * no specific capability is required.
+     */
+    String capability() default "";
 }

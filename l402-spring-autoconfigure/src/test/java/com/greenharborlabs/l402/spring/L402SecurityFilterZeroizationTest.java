@@ -109,7 +109,7 @@ class L402SecurityFilterZeroizationTest {
         L402EndpointRegistry registry = new L402EndpointRegistry();
         registry.register(new L402EndpointConfig(
                 "GET", PROTECTED_PATH, PRICE_SATS, TIMEOUT_SECONDS,
-                "Test protected endpoint", ""));
+                "Test protected endpoint", "", ""));
 
         return new L402SecurityFilter(
                 registry, lightningBackend, rootKeyStore,

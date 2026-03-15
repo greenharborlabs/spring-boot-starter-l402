@@ -100,7 +100,7 @@ class PricingFallbackTest {
             var registry = new L402EndpointRegistry();
             registry.register(
                     new L402EndpointConfig("GET", FALLBACK_PATH, FALLBACK_PRICE_SATS, 600,
-                            "Fallback price endpoint", "nonExistentPricer")
+                            "Fallback price endpoint", "nonExistentPricer", "")
             );
             return registry;
         }

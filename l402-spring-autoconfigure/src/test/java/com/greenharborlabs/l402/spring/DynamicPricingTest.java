@@ -143,7 +143,7 @@ class DynamicPricingTest {
             var registry = new L402EndpointRegistry();
             registry.register(
                     new L402EndpointConfig("GET", DYNAMIC_PATH, STATIC_PRICE, 600,
-                            "Dynamic pricing endpoint", "myPricer")
+                            "Dynamic pricing endpoint", "myPricer", "")
             );
             return registry;
         }

@@ -90,6 +90,7 @@ class L402ActuatorEndpointTest {
                     10,
                     3600,
                     "Financial data enrichment",
+                    "",
                     ""
             ));
             return registry;

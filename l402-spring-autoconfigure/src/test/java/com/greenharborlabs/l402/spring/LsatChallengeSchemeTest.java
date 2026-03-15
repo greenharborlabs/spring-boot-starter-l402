@@ -117,7 +117,7 @@ class LsatChallengeSchemeTest {
         L402EndpointRegistry l402EndpointRegistry() {
             var registry = new L402EndpointRegistry();
             registry.register(
-                    new L402EndpointConfig("GET", PROTECTED_PATH, PRICE_SATS, 600, "Scheme test endpoint", "")
+                    new L402EndpointConfig("GET", PROTECTED_PATH, PRICE_SATS, 600, "Scheme test endpoint", "", "")
             );
             return registry;
         }
