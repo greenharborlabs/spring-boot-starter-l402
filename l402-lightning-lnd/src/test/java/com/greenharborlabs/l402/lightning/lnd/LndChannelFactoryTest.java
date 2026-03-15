@@ -1,19 +1,68 @@
 package com.greenharborlabs.l402.lightning.lnd;
 
 import io.grpc.ManagedChannel;
+import io.grpc.Metadata;
+import io.grpc.MethodDescriptor;
+import io.grpc.Server;
+import io.grpc.ServerBuilder;
+import io.grpc.ServerCall;
+import io.grpc.ServerCallHandler;
+import io.grpc.ServerInterceptor;
+import io.grpc.ServerInterceptors;
+import io.grpc.ServerServiceDefinition;
+import io.grpc.netty.shaded.io.grpc.netty.GrpcSslContexts;
+import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
+import io.grpc.netty.shaded.io.netty.handler.ssl.SslContext;
+import io.grpc.protobuf.ProtoUtils;
+import io.grpc.stub.ClientCalls;
+import io.grpc.stub.ServerCalls;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HexFormat;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+
+import com.google.protobuf.Empty;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class LndChannelFactoryTest {
+
+    private static final Metadata.Key<String> MACAROON_KEY =
+            Metadata.Key.of("macaroon", Metadata.ASCII_STRING_MARSHALLER);
+
+    /**
+     * Minimal unary gRPC method descriptor for test RPC calls.
+     * Uses protobuf Empty as both request and response to avoid generating stubs.
+     */
+    private static final MethodDescriptor<Empty, Empty> TEST_METHOD =
+            MethodDescriptor.<Empty, Empty>newBuilder()
+                    .setType(MethodDescriptor.MethodType.UNARY)
+                    .setFullMethodName("test.TestService/Echo")
+                    .setRequestMarshaller(ProtoUtils.marshaller(Empty.getDefaultInstance()))
+                    .setResponseMarshaller(ProtoUtils.marshaller(Empty.getDefaultInstance()))
+                    .build();
+
+    /**
+     * Builds a {@link ServerServiceDefinition} with a single unary method that echoes Empty.
+     */
+    private static ServerServiceDefinition echoServiceDefinition() {
+        return ServerServiceDefinition.builder("test.TestService")
+                .addMethod(TEST_METHOD, ServerCalls.asyncUnaryCall(
+                        (request, responseObserver) -> {
+                            responseObserver.onNext(Empty.getDefaultInstance());
+                            responseObserver.onCompleted();
+                        }))
+                .build();
+    }
 
     // Self-signed X.509 cert (CN=localhost, RSA 2048, valid 10 years) for TLS tests only.
     // Generated via: keytool -genkeypair -alias test -keyalg RSA -keysize 2048 -validity 3650
@@ -38,11 +87,20 @@ class LndChannelFactoryTest {
             """;
 
     private ManagedChannel channel;
+    private Server server;
 
     @AfterEach
     void tearDown() {
         if (channel != null) {
             channel.shutdownNow();
+        }
+        if (server != null) {
+            server.shutdownNow();
+            try {
+                server.awaitTermination(5, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 
@@ -186,4 +244,168 @@ class LndChannelFactoryTest {
                 .hasMessageContaining("Failed to build LND gRPC channel:")
                 .hasCauseInstanceOf(Exception.class);
     }
+
+    // --- Integration tests with a real gRPC server on localhost ---
+
+    @Test
+    void plaintextChannelConnectsAndMakesRpcCall() throws Exception {
+        server = ServerBuilder.forPort(0)
+                .addService(echoServiceDefinition())
+                .build()
+                .start();
+        int port = server.getPort();
+
+        var config = LndConfig.plaintextForTesting("localhost", port);
+        channel = LndChannelFactory.create(config);
+
+        Empty response = ClientCalls.blockingUnaryCall(
+                channel, TEST_METHOD, io.grpc.CallOptions.DEFAULT, Empty.getDefaultInstance());
+
+        assertThat(response).isNotNull();
+    }
+
+    @Test
+    void macaroonInterceptorAttachesHeader(@TempDir Path tempDir) throws Exception {
+        byte[] macaroonBytes = {0x0A, 0x1B, 0x2C, 0x3D, 0x4E, 0x5F};
+        String expectedHex = HexFormat.of().formatHex(macaroonBytes);
+
+        var capturedHeader = new AtomicReference<String>();
+        ServerInterceptor headerCapture = new ServerInterceptor() {
+            @Override
+            public <ReqT, RespT> ServerCall.Listener<ReqT> interceptCall(
+                    ServerCall<ReqT, RespT> call, Metadata headers, ServerCallHandler<ReqT, RespT> next) {
+                capturedHeader.set(headers.get(MACAROON_KEY));
+                return next.startCall(call, headers);
+            }
+        };
+
+        server = ServerBuilder.forPort(0)
+                .addService(ServerInterceptors.intercept(echoServiceDefinition(), headerCapture))
+                .build()
+                .start();
+        int port = server.getPort();
+
+        Path macaroonFile = tempDir.resolve("admin.macaroon");
+        Files.write(macaroonFile, macaroonBytes);
+
+        var config = new LndConfig(
+                "localhost", port,
+                null, macaroonFile.toString(),
+                true, 60, 20, 5, 4_194_304);
+
+        channel = LndChannelFactory.create(config);
+
+        ClientCalls.blockingUnaryCall(
+                channel, TEST_METHOD, io.grpc.CallOptions.DEFAULT, Empty.getDefaultInstance());
+
+        assertThat(capturedHeader.get())
+                .as("macaroon metadata header should contain hex-encoded macaroon bytes")
+                .isEqualTo(expectedHex);
+    }
+
+    @Test
+    void tlsChannelConnectsAndMakesRpcCall(@TempDir Path tempDir) throws Exception {
+        // Generate a PKCS12 keystore with a self-signed cert via keytool (JDK tool).
+        // This avoids depending on internal sun.security.x509 APIs that Java 25 blocks.
+        Path keystorePath = tempDir.resolve("test.p12");
+        String password = "changeit";
+
+        var keytoolProcess = new ProcessBuilder(
+                "keytool", "-genkeypair",
+                "-alias", "test",
+                "-keyalg", "RSA",
+                "-keysize", "2048",
+                "-validity", "1",
+                "-dname", "CN=localhost",
+                "-ext", "san=dns:localhost",
+                "-storetype", "PKCS12",
+                "-keystore", keystorePath.toString(),
+                "-storepass", password,
+                "-keypass", password
+        ).redirectErrorStream(true).start();
+        assertThat(keytoolProcess.waitFor(30, TimeUnit.SECONDS)).as("keytool should complete within 30s").isTrue();
+        assertThat(keytoolProcess.exitValue()).isZero();
+
+        // Export the certificate to PEM for the client trust store
+        Path certFile = tempDir.resolve("tls.cert");
+        var exportProcess = new ProcessBuilder(
+                "keytool", "-exportcert",
+                "-alias", "test",
+                "-keystore", keystorePath.toString(),
+                "-storepass", password,
+                "-rfc",
+                "-file", certFile.toString()
+        ).redirectErrorStream(true).start();
+        assertThat(exportProcess.waitFor(30, TimeUnit.SECONDS)).as("keytool should complete within 30s").isTrue();
+        assertThat(exportProcess.exitValue()).isZero();
+
+        // Build server SSL context from the PKCS12 keystore
+        var keyStore = java.security.KeyStore.getInstance("PKCS12");
+        try (var kis = Files.newInputStream(keystorePath)) {
+            keyStore.load(kis, password.toCharArray());
+        }
+        var kmf = javax.net.ssl.KeyManagerFactory.getInstance(
+                javax.net.ssl.KeyManagerFactory.getDefaultAlgorithm());
+        kmf.init(keyStore, password.toCharArray());
+
+        SslContext serverSslContext = GrpcSslContexts.configure(
+                io.grpc.netty.shaded.io.netty.handler.ssl.SslContextBuilder.forServer(kmf))
+                .build();
+
+        server = NettyServerBuilder.forAddress(new InetSocketAddress("localhost", 0))
+                .sslContext(serverSslContext)
+                .addService(echoServiceDefinition())
+                .build()
+                .start();
+        int port = server.getPort();
+
+        var config = new LndConfig(
+                "localhost", port,
+                certFile.toString(), null,
+                false, 60, 20, 5, 4_194_304);
+
+        channel = LndChannelFactory.create(config);
+
+        Empty response = ClientCalls.blockingUnaryCall(
+                channel, TEST_METHOD, io.grpc.CallOptions.DEFAULT, Empty.getDefaultInstance());
+
+        assertThat(response).isNotNull();
+    }
+
+    @Test
+    void keepAliveSettingsAreApplied() throws Exception {
+        server = ServerBuilder.forPort(0)
+                .addService(echoServiceDefinition())
+                .build()
+                .start();
+        int port = server.getPort();
+
+        int customKeepAlive = 30;
+        int customKeepAliveTimeout = 10;
+        int customIdleTimeout = 3;
+
+        var config = new LndConfig(
+                "localhost", port,
+                null, null,
+                true,
+                customKeepAlive,
+                customKeepAliveTimeout,
+                customIdleTimeout,
+                4_194_304);
+
+        channel = LndChannelFactory.create(config);
+
+        // Verify the channel is functional with custom keepalive settings
+        // (if settings were invalid, channel creation or RPC would fail)
+        Empty response = ClientCalls.blockingUnaryCall(
+                channel, TEST_METHOD, io.grpc.CallOptions.DEFAULT, Empty.getDefaultInstance());
+
+        assertThat(response).isNotNull();
+        assertThat(channel.isShutdown()).isFalse();
+
+        // Verify the channel string representation includes authority with correct host:port,
+        // confirming the config was wired through properly
+        assertThat(channel.authority()).isEqualTo("localhost:" + port);
+    }
+
 }

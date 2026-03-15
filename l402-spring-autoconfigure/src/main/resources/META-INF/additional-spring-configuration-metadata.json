@@ -113,6 +113,30 @@
       "name": "l402.lnd.macaroon-path",
       "type": "java.lang.String",
       "description": "File system path to the LND admin macaroon file (admin.macaroon). Required when l402.backend=lnd for authenticated gRPC calls."
+    },
+    {
+      "name": "l402.lnd.keep-alive-time-seconds",
+      "type": "java.lang.Integer",
+      "description": "Interval in seconds between gRPC keepalive pings sent to the LND node. Helps detect broken connections and keep the channel alive through firewalls and load balancers.",
+      "defaultValue": 60
+    },
+    {
+      "name": "l402.lnd.keep-alive-timeout-seconds",
+      "type": "java.lang.Integer",
+      "description": "Timeout in seconds to wait for a keepalive ping acknowledgement from the LND node. If no response is received within this duration, the connection is considered dead.",
+      "defaultValue": 20
+    },
+    {
+      "name": "l402.lnd.idle-timeout-minutes",
+      "type": "java.lang.Integer",
+      "description": "Duration in minutes after which an idle gRPC connection to the LND node is closed. Helps free resources when the connection is not actively used.",
+      "defaultValue": 5
+    },
+    {
+      "name": "l402.lnd.max-inbound-message-size",
+      "type": "java.lang.Integer",
+      "description": "Maximum size in bytes for inbound gRPC messages from the LND node. Increase if LND responses (e.g., large channel lists) exceed the default 4 MB limit.",
+      "defaultValue": 4194304
     }
   ],
   "hints": [

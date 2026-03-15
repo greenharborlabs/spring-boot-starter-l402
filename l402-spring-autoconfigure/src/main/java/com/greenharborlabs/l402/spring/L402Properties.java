@@ -269,6 +269,14 @@ public class L402Properties {
 
         private boolean allowPlaintext = false;
 
+        private int keepAliveTimeSeconds = 60;
+
+        private int keepAliveTimeoutSeconds = 20;
+
+        private int idleTimeoutMinutes = 5;
+
+        private int maxInboundMessageSize = 4194304;
+
         public boolean isAllowPlaintext() {
             return allowPlaintext;
         }
@@ -307,6 +315,38 @@ public class L402Properties {
 
         public void setMacaroonPath(String macaroonPath) {
             this.macaroonPath = macaroonPath;
+        }
+
+        public int getKeepAliveTimeSeconds() {
+            return keepAliveTimeSeconds;
+        }
+
+        public void setKeepAliveTimeSeconds(int keepAliveTimeSeconds) {
+            this.keepAliveTimeSeconds = keepAliveTimeSeconds;
+        }
+
+        public int getKeepAliveTimeoutSeconds() {
+            return keepAliveTimeoutSeconds;
+        }
+
+        public void setKeepAliveTimeoutSeconds(int keepAliveTimeoutSeconds) {
+            this.keepAliveTimeoutSeconds = keepAliveTimeoutSeconds;
+        }
+
+        public int getIdleTimeoutMinutes() {
+            return idleTimeoutMinutes;
+        }
+
+        public void setIdleTimeoutMinutes(int idleTimeoutMinutes) {
+            this.idleTimeoutMinutes = idleTimeoutMinutes;
+        }
+
+        public int getMaxInboundMessageSize() {
+            return maxInboundMessageSize;
+        }
+
+        public void setMaxInboundMessageSize(int maxInboundMessageSize) {
+            this.maxInboundMessageSize = maxInboundMessageSize;
         }
     }
 }

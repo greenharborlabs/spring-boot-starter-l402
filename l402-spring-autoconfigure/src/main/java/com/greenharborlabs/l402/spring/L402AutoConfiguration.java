@@ -3,6 +3,8 @@ package com.greenharborlabs.l402.spring;
 import com.greenharborlabs.l402.core.credential.CredentialStore;
 import com.greenharborlabs.l402.core.credential.InMemoryCredentialStore;
 import com.greenharborlabs.l402.core.lightning.LightningBackend;
+import com.greenharborlabs.l402.lightning.lnd.LndChannelFactory;
+import com.greenharborlabs.l402.lightning.lnd.LndConfig;
 import com.greenharborlabs.l402.core.macaroon.CaveatVerifier;
 import com.greenharborlabs.l402.core.macaroon.FileBasedRootKeyStore;
 import com.greenharborlabs.l402.core.macaroon.InMemoryRootKeyStore;
@@ -268,56 +270,28 @@ public class L402AutoConfiguration {
     @ConditionalOnClass(name = "com.greenharborlabs.l402.lightning.lnd.LndBackend")
     static class LndBackendConfiguration {
 
-        private static final System.Logger LOG = System.getLogger(LndBackendConfiguration.class.getName());
-
         @Bean(destroyMethod = "shutdown")
         @ConditionalOnMissingBean(io.grpc.ManagedChannel.class)
         io.grpc.ManagedChannel lndManagedChannel(L402Properties properties) {
-            return buildChannel(properties.getLnd());
+            var lnd = properties.getLnd();
+            var config = new LndConfig(
+                    lnd.getHost(),
+                    lnd.getPort(),
+                    lnd.getTlsCertPath(),
+                    lnd.getMacaroonPath(),
+                    lnd.isAllowPlaintext(),
+                    lnd.getKeepAliveTimeSeconds(),
+                    lnd.getKeepAliveTimeoutSeconds(),
+                    lnd.getIdleTimeoutMinutes(),
+                    lnd.getMaxInboundMessageSize()
+            );
+            return LndChannelFactory.create(config);
         }
 
         @Bean
         @ConditionalOnMissingBean(LightningBackend.class)
         LightningBackend lightningBackend(io.grpc.ManagedChannel lndManagedChannel) {
             return new com.greenharborlabs.l402.lightning.lnd.LndBackend(lndManagedChannel);
-        }
-
-        private static io.grpc.ManagedChannel buildChannel(L402Properties.Lnd lnd) {
-            if (lnd.getTlsCertPath() == null) {
-                if (!lnd.isAllowPlaintext()) {
-                    throw new IllegalStateException(
-                            "LND gRPC TLS cert path is not configured. Set l402.lnd.tls-cert-path "
-                                    + "or explicitly set l402.lnd.allow-plaintext=true for local development.");
-                }
-                LOG.log(System.Logger.Level.WARNING,
-                        "LND gRPC channel using PLAINTEXT — not suitable for production");
-                return io.grpc.ManagedChannelBuilder
-                        .forAddress(lnd.getHost(), lnd.getPort())
-                        .usePlaintext()
-                        .build();
-            }
-            try {
-                // TLS channel with optional macaroon credentials
-                io.grpc.netty.shaded.io.netty.handler.ssl.SslContext sslContext;
-                try (java.io.InputStream certStream = java.nio.file.Files.newInputStream(
-                        Path.of(lnd.getTlsCertPath()))) {
-                    sslContext = io.grpc.netty.shaded.io.grpc.netty.GrpcSslContexts.forClient()
-                            .trustManager(certStream)
-                            .build();
-                }
-                var builder = io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder
-                        .forAddress(lnd.getHost(), lnd.getPort())
-                        .sslContext(sslContext);
-                if (lnd.getMacaroonPath() != null) {
-                    byte[] macaroonBytes = java.nio.file.Files.readAllBytes(
-                            Path.of(lnd.getMacaroonPath()));
-                    String macaroonHex = java.util.HexFormat.of().formatHex(macaroonBytes);
-                    builder.intercept(new com.greenharborlabs.l402.lightning.lnd.MacaroonClientInterceptor(macaroonHex));
-                }
-                return builder.build();
-            } catch (java.io.IOException e) {
-                throw new IllegalStateException("Failed to build LND gRPC channel", e);
-            }
         }
     }
 }
