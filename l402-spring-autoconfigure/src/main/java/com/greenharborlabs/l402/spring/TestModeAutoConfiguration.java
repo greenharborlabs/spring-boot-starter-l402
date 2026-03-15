@@ -26,8 +26,7 @@ import org.springframework.core.env.Environment;
  * </ol>
  */
 @AutoConfiguration(before = L402AutoConfiguration.class)
-@ConditionalOnProperty(name = "l402.enabled", havingValue = "true")
-@ConditionalOnProperty(name = "l402.test-mode", havingValue = "true")
+@ConditionalOnProperty(name = {"l402.enabled", "l402.test-mode"}, havingValue = "true")
 public class TestModeAutoConfiguration {
 
     private static final Set<String> DENIED_PROFILES = Set.of("production", "prod");
