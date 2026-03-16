@@ -8,6 +8,7 @@ import com.greenharborlabs.l402.core.macaroon.MacaroonIdentifier;
 import com.greenharborlabs.l402.core.protocol.ErrorCode;
 import com.greenharborlabs.l402.core.protocol.L402Credential;
 import com.greenharborlabs.l402.core.protocol.L402Exception;
+import com.greenharborlabs.l402.core.protocol.L402HeaderComponents;
 import com.greenharborlabs.l402.core.protocol.L402Validator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -26,7 +27,6 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -77,11 +77,10 @@ class L402AuthenticationProviderTest {
         String preimageHex = "a".repeat(64);
 
         L402Credential credential = createTestCredential(List.of(new Caveat("service", "api")));
-        String expectedHeader = "L402 " + macaroonB64 + ":" + preimageHex;
-        when(l402Validator.validate(eq(expectedHeader), any(L402VerificationContext.class)))
+        when(l402Validator.validate(any(L402HeaderComponents.class), any(L402VerificationContext.class)))
                 .thenReturn(new L402Validator.ValidationResult(credential, true));
 
-        var unauthToken = new L402AuthenticationToken(macaroonB64, preimageHex);
+        var unauthToken = new L402AuthenticationToken(new L402HeaderComponents("L402", macaroonB64, preimageHex));
 
         Authentication result = provider.authenticate(unauthToken);
 
@@ -102,12 +101,11 @@ class L402AuthenticationProviderTest {
     void throwsBadCredentialsOnValidationFailure() {
         String macaroonB64 = "badmac";
         String preimageHex = "b".repeat(64);
-        String expectedHeader = "L402 " + macaroonB64 + ":" + preimageHex;
 
-        when(l402Validator.validate(eq(expectedHeader), any(L402VerificationContext.class)))
+        when(l402Validator.validate(any(L402HeaderComponents.class), any(L402VerificationContext.class)))
                 .thenThrow(new L402Exception(ErrorCode.INVALID_MACAROON, "bad sig", "tok1"));
 
-        var unauthToken = new L402AuthenticationToken(macaroonB64, preimageHex);
+        var unauthToken = new L402AuthenticationToken(new L402HeaderComponents("L402", macaroonB64, preimageHex));
 
         assertThatThrownBy(() -> provider.authenticate(unauthToken))
                 .isInstanceOf(BadCredentialsException.class)
@@ -117,13 +115,13 @@ class L402AuthenticationProviderTest {
     }
 
     @Test
-    void throwsBadCredentialsWhenRawCredentialsMissing() {
+    void throwsBadCredentialsWhenComponentsMissing() {
         L402Credential credential = createTestCredential(List.of());
         var authenticatedToken = L402AuthenticationToken.authenticated(credential, "svc");
 
         assertThatThrownBy(() -> provider.authenticate(authenticatedToken))
                 .isInstanceOf(BadCredentialsException.class)
-                .hasMessageContaining("missing raw credentials");
+                .hasMessageContaining("missing credentials");
     }
 
     @Test
@@ -132,13 +130,12 @@ class L402AuthenticationProviderTest {
 
         String macaroonB64 = "dGVzdA==";
         String preimageHex = "c".repeat(64);
-        String expectedHeader = "L402 " + macaroonB64 + ":" + preimageHex;
 
         L402Credential credential = createTestCredential(List.of());
-        when(l402Validator.validate(eq(expectedHeader), any(L402VerificationContext.class)))
+        when(l402Validator.validate(any(L402HeaderComponents.class), any(L402VerificationContext.class)))
                 .thenReturn(new L402Validator.ValidationResult(credential, true));
 
-        var unauthToken = new L402AuthenticationToken(macaroonB64, preimageHex);
+        var unauthToken = new L402AuthenticationToken(new L402HeaderComponents("L402", macaroonB64, preimageHex));
         Authentication result = providerNoService.authenticate(unauthToken);
 
         assertThat(result).isInstanceOf(L402AuthenticationToken.class);
@@ -149,13 +146,11 @@ class L402AuthenticationProviderTest {
     void passesRequestedCapabilityThroughToValidatorContext() {
         String macaroonB64 = "dGVzdG1hY2Fyb29u";
         String preimageHex = "a".repeat(64);
-        String expectedHeader = "L402 " + macaroonB64 + ":" + preimageHex;
-
         L402Credential credential = createTestCredential(List.of(new Caveat("capabilities", "read")));
-        when(l402Validator.validate(eq(expectedHeader), any(L402VerificationContext.class)))
+        when(l402Validator.validate(any(L402HeaderComponents.class), any(L402VerificationContext.class)))
                 .thenReturn(new L402Validator.ValidationResult(credential, true));
 
-        var unauthToken = new L402AuthenticationToken(macaroonB64, preimageHex, "read");
+        var unauthToken = new L402AuthenticationToken(new L402HeaderComponents("L402", macaroonB64, preimageHex), "read");
 
         Authentication result = provider.authenticate(unauthToken);
 
@@ -163,7 +158,7 @@ class L402AuthenticationProviderTest {
 
         ArgumentCaptor<L402VerificationContext> contextCaptor =
                 ArgumentCaptor.forClass(L402VerificationContext.class);
-        verify(l402Validator).validate(eq(expectedHeader), contextCaptor.capture());
+        verify(l402Validator).validate(any(L402HeaderComponents.class), contextCaptor.capture());
 
         L402VerificationContext capturedContext = contextCaptor.getValue();
         assertThat(capturedContext.getServiceName()).isEqualTo(SERVICE_NAME);
@@ -174,19 +169,18 @@ class L402AuthenticationProviderTest {
     void passesNullCapabilityWhenNotSpecified() {
         String macaroonB64 = "dGVzdG1hY2Fyb29u";
         String preimageHex = "a".repeat(64);
-        String expectedHeader = "L402 " + macaroonB64 + ":" + preimageHex;
 
         L402Credential credential = createTestCredential(List.of());
-        when(l402Validator.validate(eq(expectedHeader), any(L402VerificationContext.class)))
+        when(l402Validator.validate(any(L402HeaderComponents.class), any(L402VerificationContext.class)))
                 .thenReturn(new L402Validator.ValidationResult(credential, true));
 
-        var unauthToken = new L402AuthenticationToken(macaroonB64, preimageHex);
+        var unauthToken = new L402AuthenticationToken(new L402HeaderComponents("L402", macaroonB64, preimageHex));
 
         provider.authenticate(unauthToken);
 
         ArgumentCaptor<L402VerificationContext> contextCaptor =
                 ArgumentCaptor.forClass(L402VerificationContext.class);
-        verify(l402Validator).validate(eq(expectedHeader), contextCaptor.capture());
+        verify(l402Validator).validate(any(L402HeaderComponents.class), contextCaptor.capture());
 
         L402VerificationContext capturedContext = contextCaptor.getValue();
         assertThat(capturedContext.getServiceName()).isEqualTo(SERVICE_NAME);
@@ -197,12 +191,11 @@ class L402AuthenticationProviderTest {
     void capabilityMismatchResultsInBadCredentialsException() {
         String macaroonB64 = "dGVzdG1hY2Fyb29u";
         String preimageHex = "a".repeat(64);
-        String expectedHeader = "L402 " + macaroonB64 + ":" + preimageHex;
 
-        when(l402Validator.validate(eq(expectedHeader), any(L402VerificationContext.class)))
+        when(l402Validator.validate(any(L402HeaderComponents.class), any(L402VerificationContext.class)))
                 .thenThrow(new L402Exception(ErrorCode.INVALID_SERVICE, "capability mismatch", "tok1"));
 
-        var unauthToken = new L402AuthenticationToken(macaroonB64, preimageHex, "write");
+        var unauthToken = new L402AuthenticationToken(new L402HeaderComponents("L402", macaroonB64, preimageHex), "write");
 
         assertThatThrownBy(() -> provider.authenticate(unauthToken))
                 .isInstanceOf(BadCredentialsException.class)

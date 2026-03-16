@@ -110,8 +110,10 @@ class L402AuthenticationFilterTest {
 
         L402AuthenticationToken unauthToken = captor.getValue();
         assertThat(unauthToken.isAuthenticated()).isFalse();
-        assertThat(unauthToken.getRawMacaroon()).isEqualTo(VALID_MACAROON_B64);
-        assertThat(unauthToken.getRawPreimage()).isEqualTo(VALID_PREIMAGE);
+        assertThat(unauthToken.getComponents()).isNotNull();
+        assertThat(unauthToken.getComponents().macaroonBase64()).isEqualTo(VALID_MACAROON_B64);
+        assertThat(unauthToken.getComponents().preimageHex()).isEqualTo(VALID_PREIMAGE);
+        assertThat(unauthToken.getComponents().scheme()).isEqualTo("L402");
 
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isEqualTo(authenticatedResult);
         verify(filterChain).doFilter(request, response);
@@ -167,7 +169,7 @@ class L402AuthenticationFilterTest {
         verify(authenticationManager).authenticate(captor.capture());
 
         L402AuthenticationToken unauthToken = captor.getValue();
-        assertThat(unauthToken.getRawPreimage()).isEqualTo(uppercasePreimage);
+        assertThat(unauthToken.getComponents().preimageHex()).isEqualTo(uppercasePreimage);
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isEqualTo(authenticatedResult);
         verify(filterChain).doFilter(request, response);
     }
@@ -243,8 +245,8 @@ class L402AuthenticationFilterTest {
         verify(authenticationManager).authenticate(captor.capture());
 
         L402AuthenticationToken unauthToken = captor.getValue();
-        assertThat(unauthToken.getRawMacaroon()).isEqualTo(VALID_MACAROON_B64 + "," + secondToken);
-        assertThat(unauthToken.getRawPreimage()).isEqualTo(VALID_PREIMAGE);
+        assertThat(unauthToken.getComponents().macaroonBase64()).isEqualTo(VALID_MACAROON_B64 + "," + secondToken);
+        assertThat(unauthToken.getComponents().preimageHex()).isEqualTo(VALID_PREIMAGE);
         verify(filterChain).doFilter(request, response);
     }
 

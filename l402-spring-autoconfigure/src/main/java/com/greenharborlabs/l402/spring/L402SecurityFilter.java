@@ -8,6 +8,7 @@ import com.greenharborlabs.l402.core.macaroon.RootKeyStore;
 import com.greenharborlabs.l402.core.protocol.ErrorCode;
 import com.greenharborlabs.l402.core.protocol.L402Credential;
 import com.greenharborlabs.l402.core.protocol.L402Exception;
+import com.greenharborlabs.l402.core.protocol.L402HeaderComponents;
 import com.greenharborlabs.l402.core.protocol.L402Validator;
 import com.greenharborlabs.l402.core.util.JsonEscaper;
 
@@ -45,8 +46,6 @@ public class L402SecurityFilter implements Filter {
     private static final System.Logger log = System.getLogger(L402SecurityFilter.class.getName());
 
     private static final String AUTHORIZATION_HEADER = "Authorization";
-    private static final String L402_PREFIX = "L402 ";
-    private static final String LSAT_PREFIX = "LSAT ";
 
     private final L402EndpointRegistry registry;
     private final LightningBackend lightningBackend;
@@ -231,9 +230,16 @@ public class L402SecurityFilter implements Filter {
         // 2. Check Authorization header — validate credentials before checking Lightning health,
         //    so requests with valid cached credentials skip the health-check cost entirely.
         String authHeader = httpRequest.getHeader(AUTHORIZATION_HEADER);
-        if (authHeader != null && !authHeader.isEmpty()
-                && (authHeader.startsWith(L402_PREFIX) || authHeader.startsWith(LSAT_PREFIX))) {
-            // Header looks like an L402/LSAT credential — attempt validation (purely local, no Lightning needed)
+        var componentsOpt = L402HeaderComponents.extract(authHeader);
+        if (componentsOpt.isEmpty() && L402HeaderComponents.isL402Header(authHeader)) {
+            // Header starts with L402/LSAT prefix but fails structural validation — malformed
+            writeMalformedHeaderResponse(httpResponse, "Malformed L402 Authorization header", null);
+            recordRejected(path);
+            return;
+        }
+        if (componentsOpt.isPresent()) {
+            var components = componentsOpt.get();
+            // Header matches L402/LSAT format — attempt validation (purely local, no Lightning needed)
             try {
                 // Build per-request context with capability from endpoint config
                 L402VerificationContext context = L402VerificationContext.builder()
@@ -241,7 +247,7 @@ public class L402SecurityFilter implements Filter {
                         .currentTime(Instant.now())
                         .requestedCapability(config.capability().isEmpty() ? null : config.capability())
                         .build();
-                L402Validator.ValidationResult result = validator.validate(authHeader, context);
+                L402Validator.ValidationResult result = validator.validate(components, context);
                 L402Credential credential = result.credential();
 
                 // Success: add expiry header and pass through

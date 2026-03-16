@@ -2,6 +2,7 @@ package com.greenharborlabs.l402.spring.security;
 
 import com.greenharborlabs.l402.core.macaroon.L402VerificationContext;
 import com.greenharborlabs.l402.core.protocol.L402Exception;
+import com.greenharborlabs.l402.core.protocol.L402HeaderComponents;
 import com.greenharborlabs.l402.core.protocol.L402Validator;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -35,14 +36,10 @@ public final class L402AuthenticationProvider implements AuthenticationProvider 
             return null;
         }
 
-        String rawMacaroon = token.getRawMacaroon();
-        String rawPreimage = token.getRawPreimage();
-
-        if (rawMacaroon == null || rawPreimage == null) {
-            throw new BadCredentialsException("L402 token missing raw credentials");
+        L402HeaderComponents components = token.getComponents();
+        if (components == null) {
+            throw new BadCredentialsException("L402 token missing credentials");
         }
-
-        String authHeader = "L402 " + rawMacaroon + ":" + rawPreimage;
 
         L402VerificationContext context = L402VerificationContext.builder()
                 .serviceName(serviceName)
@@ -50,7 +47,7 @@ public final class L402AuthenticationProvider implements AuthenticationProvider 
                 .build();
 
         try {
-            L402Validator.ValidationResult result = l402Validator.validate(authHeader, context);
+            L402Validator.ValidationResult result = l402Validator.validate(components, context);
             return L402AuthenticationToken.authenticated(result.credential(), serviceName);
         } catch (L402Exception e) {
             throw new BadCredentialsException("L402 authentication failed", e);

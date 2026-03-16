@@ -262,6 +262,19 @@ class L402SecurityFilterTest {
                     .andExpect(jsonPath("$.code", is(400)))
                     .andExpect(jsonPath("$.error", is("MALFORMED_HEADER")));
         }
+
+        @Test
+        @DisplayName("returns 400 when L402 header has special chars that fail regex extraction")
+        void l402HeaderWithSpecialCharsReturns400() throws Exception {
+            // Header starts with "L402 " but contains chars outside the allowed base64+hex charset,
+            // so L402HeaderComponents.extract() returns empty while isL402Header() returns true.
+            String badHeader = "L402 bad-chars!@#:" + "ab".repeat(32);
+            mockMvc.perform(get(PROTECTED_PATH)
+                            .header("Authorization", badHeader))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code", is(400)))
+                    .andExpect(jsonPath("$.error", is("MALFORMED_HEADER")));
+        }
     }
 
     @Nested

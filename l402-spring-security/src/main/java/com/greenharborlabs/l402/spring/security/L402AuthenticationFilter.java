@@ -1,5 +1,6 @@
 package com.greenharborlabs.l402.spring.security;
 
+import com.greenharborlabs.l402.core.protocol.L402HeaderComponents;
 import com.greenharborlabs.l402.spring.L402EndpointConfig;
 import com.greenharborlabs.l402.spring.L402EndpointRegistry;
 import jakarta.servlet.FilterChain;
@@ -16,8 +17,6 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.util.Objects;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * Spring Security filter that extracts L402 credentials from the Authorization header
@@ -35,8 +34,6 @@ public final class L402AuthenticationFilter extends OncePerRequestFilter {
     private static final Logger log = LoggerFactory.getLogger(L402AuthenticationFilter.class);
 
     private static final String AUTHORIZATION_HEADER = "Authorization";
-    private static final Pattern L402_PATTERN =
-            Pattern.compile("(?:LSAT|L402) ([A-Za-z0-9+/=,]{1,8192}):([a-fA-F0-9]{64})");
 
     private final AuthenticationManager authenticationManager;
     private final L402EndpointRegistry endpointRegistry;
@@ -56,22 +53,15 @@ public final class L402AuthenticationFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
 
         String authHeader = request.getHeader(AUTHORIZATION_HEADER);
-        if (authHeader == null || authHeader.isBlank()) {
+        var componentsOpt = L402HeaderComponents.extract(authHeader);
+        if (componentsOpt.isEmpty()) {
             filterChain.doFilter(request, response);
             return;
         }
 
-        Matcher matcher = L402_PATTERN.matcher(authHeader);
-        if (!matcher.matches()) {
-            filterChain.doFilter(request, response);
-            return;
-        }
-
-        String macaroonBase64 = matcher.group(1);
-        String preimageHex = matcher.group(2);
-
+        var components = componentsOpt.get();
         String capability = resolveCapability(request);
-        var unauthenticatedToken = new L402AuthenticationToken(macaroonBase64, preimageHex, capability);
+        var unauthenticatedToken = new L402AuthenticationToken(components, capability);
 
         try {
             Authentication authenticated = authenticationManager.authenticate(unauthenticatedToken);

@@ -2,6 +2,7 @@ package com.greenharborlabs.l402.spring.security;
 
 import com.greenharborlabs.l402.core.macaroon.Caveat;
 import com.greenharborlabs.l402.core.protocol.L402Credential;
+import com.greenharborlabs.l402.core.protocol.L402HeaderComponents;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -25,8 +26,7 @@ import java.util.Set;
  */
 public final class L402AuthenticationToken extends AbstractAuthenticationToken {
 
-    private final String rawMacaroon;
-    private final String rawPreimage;
+    private final L402HeaderComponents components;
     private final L402Credential credential;
     private final String tokenId;
     private final String serviceName;
@@ -34,23 +34,21 @@ public final class L402AuthenticationToken extends AbstractAuthenticationToken {
     private final String requestedCapability;
 
     /**
-     * Creates an unauthenticated token from raw header components.
+     * Creates an unauthenticated token from parsed header components.
      */
-    public L402AuthenticationToken(String rawMacaroon, String rawPreimage) {
-        this(rawMacaroon, rawPreimage, null);
+    public L402AuthenticationToken(L402HeaderComponents components) {
+        this(components, null);
     }
 
     /**
-     * Creates an unauthenticated token from raw header components with an optional requested capability.
+     * Creates an unauthenticated token from parsed header components with an optional requested capability.
      *
-     * @param rawMacaroon         base64-encoded macaroon, must not be null
-     * @param rawPreimage         hex-encoded preimage, must not be null
+     * @param components          parsed L402 header components, must not be null
      * @param requestedCapability the capability being requested, may be null (permissive)
      */
-    public L402AuthenticationToken(String rawMacaroon, String rawPreimage, String requestedCapability) {
+    public L402AuthenticationToken(L402HeaderComponents components, String requestedCapability) {
         super(Collections.emptyList());
-        this.rawMacaroon = Objects.requireNonNull(rawMacaroon, "rawMacaroon must not be null");
-        this.rawPreimage = Objects.requireNonNull(rawPreimage, "rawPreimage must not be null");
+        this.components = Objects.requireNonNull(components, "components must not be null");
         this.credential = null;
         this.tokenId = null;
         this.serviceName = null;
@@ -66,8 +64,7 @@ public final class L402AuthenticationToken extends AbstractAuthenticationToken {
                                     Collection<? extends GrantedAuthority> authorities,
                                     Map<String, String> attributes) {
         super(List.copyOf(authorities));
-        this.rawMacaroon = null;
-        this.rawPreimage = null;
+        this.components = null;
         this.credential = Objects.requireNonNull(credential, "credential must not be null");
         this.tokenId = credential.tokenId();
         this.serviceName = serviceName;
@@ -150,11 +147,7 @@ public final class L402AuthenticationToken extends AbstractAuthenticationToken {
         return requestedCapability;
     }
 
-    public String getRawMacaroon() {
-        return rawMacaroon;
-    }
-
-    public String getRawPreimage() {
-        return rawPreimage;
+    public L402HeaderComponents getComponents() {
+        return components;
     }
 }

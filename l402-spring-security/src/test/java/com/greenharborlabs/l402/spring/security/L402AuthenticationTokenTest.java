@@ -5,6 +5,7 @@ import com.greenharborlabs.l402.core.macaroon.Caveat;
 import com.greenharborlabs.l402.core.macaroon.Macaroon;
 import com.greenharborlabs.l402.core.macaroon.MacaroonIdentifier;
 import com.greenharborlabs.l402.core.protocol.L402Credential;
+import com.greenharborlabs.l402.core.protocol.L402HeaderComponents;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.core.GrantedAuthority;
 
@@ -19,12 +20,14 @@ class L402AuthenticationTokenTest {
     private static final SecureRandom RNG = new SecureRandom();
 
     @Test
-    void unauthenticatedTokenHoldsRawCredentials() {
-        var token = new L402AuthenticationToken("mac-base64", "abcd".repeat(16));
+    void unauthenticatedTokenHoldsComponents() {
+        var components = new L402HeaderComponents("L402", "mac-base64", "abcd".repeat(16));
+        var token = new L402AuthenticationToken(components);
 
         assertThat(token.isAuthenticated()).isFalse();
-        assertThat(token.getRawMacaroon()).isEqualTo("mac-base64");
-        assertThat(token.getRawPreimage()).isEqualTo("abcd".repeat(16));
+        assertThat(token.getComponents()).isSameAs(components);
+        assertThat(token.getComponents().macaroonBase64()).isEqualTo("mac-base64");
+        assertThat(token.getComponents().preimageHex()).isEqualTo("abcd".repeat(16));
         assertThat(token.getTokenId()).isNull();
         assertThat(token.getServiceName()).isNull();
         assertThat(token.getAttributes()).isEmpty();
@@ -33,22 +36,25 @@ class L402AuthenticationTokenTest {
 
     @Test
     void unauthenticatedTokenRedactsSensitiveValues() {
-        var token = new L402AuthenticationToken("mac-base64", "abcd".repeat(16));
+        var components = new L402HeaderComponents("L402", "mac-base64", "abcd".repeat(16));
+        var token = new L402AuthenticationToken(components);
 
         assertThat(token.getPrincipal()).isEqualTo("[unauthenticated-l402]");
         assertThat(token.getCredentials()).isEqualTo("[REDACTED]");
     }
 
     @Test
-    void unauthenticatedTokenRejectsNullMacaroon() {
-        assertThatThrownBy(() -> new L402AuthenticationToken(null, "abcd".repeat(16)))
+    void unauthenticatedTokenRejectsNullComponents() {
+        assertThatThrownBy(() -> new L402AuthenticationToken((L402HeaderComponents) null))
                 .isInstanceOf(NullPointerException.class);
     }
 
     @Test
-    void unauthenticatedTokenRejectsNullPreimage() {
-        assertThatThrownBy(() -> new L402AuthenticationToken("mac", null))
-                .isInstanceOf(NullPointerException.class);
+    void authenticatedTokenReturnsNullComponents() {
+        L402Credential credential = createTestCredential(List.of());
+        var token = L402AuthenticationToken.authenticated(credential, "svc");
+
+        assertThat(token.getComponents()).isNull();
     }
 
     @Test
