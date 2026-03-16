@@ -4,10 +4,10 @@ import com.greenharborlabs.l402.core.credential.CredentialStore;
 import com.greenharborlabs.l402.core.lightning.Invoice;
 import com.greenharborlabs.l402.core.lightning.InvoiceStatus;
 import com.greenharborlabs.l402.core.lightning.LightningBackend;
-import com.greenharborlabs.l402.core.macaroon.CaveatVerifier;
 import com.greenharborlabs.l402.core.macaroon.RootKeyStore;
 import com.greenharborlabs.l402.core.macaroon.SensitiveBytes;
 import com.greenharborlabs.l402.core.protocol.L402Credential;
+import com.greenharborlabs.l402.core.protocol.L402Validator;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.http.HttpServletRequest;
@@ -16,6 +16,8 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+
+import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -101,6 +103,19 @@ class L402SecurityFilterZeroizationTest {
                 .isTrue();
     }
 
+    @Test
+    @DisplayName("constructor rejects null challengeService with NullPointerException")
+    void constructorRejectsNullChallengeService() {
+        var registry = new L402EndpointRegistry();
+        var rootKeyStore = new ZeroizationTrackingRootKeyStore();
+        var validator = new L402Validator(rootKeyStore, credentialStore, List.of(), SERVICE_NAME);
+
+        assertThatNullPointerException()
+                .isThrownBy(() -> new L402SecurityFilter(
+                        registry, validator, null, SERVICE_NAME, null, null, null))
+                .withMessageContaining("challengeService");
+    }
+
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
@@ -111,9 +126,12 @@ class L402SecurityFilterZeroizationTest {
                 "GET", PROTECTED_PATH, PRICE_SATS, TIMEOUT_SECONDS,
                 "Test protected endpoint", "", ""));
 
+        var validator = new L402Validator(rootKeyStore, credentialStore, List.of(), SERVICE_NAME);
+        var challengeService = new L402ChallengeService(
+                rootKeyStore, lightningBackend, null, null, null, null);
         return new L402SecurityFilter(
-                registry, lightningBackend, rootKeyStore,
-                credentialStore, List.of(), SERVICE_NAME);
+                registry, validator, challengeService, SERVICE_NAME,
+                null, null, null);
     }
 
     private static Invoice createStubInvoice() {

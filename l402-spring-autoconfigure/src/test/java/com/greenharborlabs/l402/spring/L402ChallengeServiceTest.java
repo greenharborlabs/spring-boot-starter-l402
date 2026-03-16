@@ -116,8 +116,8 @@ class L402ChallengeServiceTest {
             L402RateLimiter rateLimiter = mock(L402RateLimiter.class);
             when(rateLimiter.tryAcquire(anyString())).thenReturn(false);
 
-            L402ChallengeService service = createService(createTrackingRootKeyStore());
-            service.setRateLimiter(rateLimiter);
+            L402ChallengeService service = new L402ChallengeService(
+                    createTrackingRootKeyStore(), lightningBackend, properties, applicationContext, null, rateLimiter);
 
             assertThatThrownBy(() -> service.createChallenge(request, config))
                     .isInstanceOf(L402RateLimitedException.class);
@@ -328,8 +328,8 @@ class L402ChallengeServiceTest {
             when(lightningBackend.createInvoice(anyLong(), anyString())).thenReturn(createStubInvoice(null));
 
             L402EarningsTracker earningsTracker = mock(L402EarningsTracker.class);
-            L402ChallengeService service = createService(createTrackingRootKeyStore());
-            service.setEarningsTracker(earningsTracker);
+            L402ChallengeService service = new L402ChallengeService(
+                    createTrackingRootKeyStore(), lightningBackend, properties, applicationContext, earningsTracker, null);
 
             service.createChallenge(request, config);
 
@@ -533,7 +533,7 @@ class L402ChallengeServiceTest {
 
     private L402ChallengeService createService(RootKeyStore rootKeyStore) {
         return new L402ChallengeService(
-                rootKeyStore, lightningBackend, properties, applicationContext);
+                rootKeyStore, lightningBackend, properties, applicationContext, null, null);
     }
 
     private static ZeroizationTrackingRootKeyStore createTrackingRootKeyStore() {

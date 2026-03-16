@@ -4,10 +4,10 @@ import com.greenharborlabs.l402.core.credential.CredentialStore;
 import com.greenharborlabs.l402.core.lightning.Invoice;
 import com.greenharborlabs.l402.core.lightning.InvoiceStatus;
 import com.greenharborlabs.l402.core.lightning.LightningBackend;
-import com.greenharborlabs.l402.core.lightning.PaymentPreimage;
 import com.greenharborlabs.l402.core.macaroon.CaveatVerifier;
 import com.greenharborlabs.l402.core.macaroon.RootKeyStore;
 import com.greenharborlabs.l402.core.protocol.L402Credential;
+import com.greenharborlabs.l402.core.protocol.L402Validator;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -157,10 +157,12 @@ class DynamicPricingTest {
                 List<CaveatVerifier> caveatVerifiers,
                 ApplicationContext applicationContext
         ) {
+            var validator = new L402Validator(rootKeyStore, credentialStore, caveatVerifiers, "test-service");
+            var challengeService = new L402ChallengeService(
+                    rootKeyStore, lightningBackendBean, null, applicationContext, null, null);
             return new L402SecurityFilter(
-                    endpointRegistry, lightningBackendBean, rootKeyStore,
-                    credentialStore, caveatVerifiers, "test-service", applicationContext
-            );
+                    endpointRegistry, validator, challengeService, "test-service",
+                    null, null, null);
         }
 
         @Bean

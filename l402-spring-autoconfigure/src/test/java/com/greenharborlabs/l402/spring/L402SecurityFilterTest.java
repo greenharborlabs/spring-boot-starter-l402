@@ -4,11 +4,9 @@ import com.greenharborlabs.l402.core.credential.CredentialStore;
 import com.greenharborlabs.l402.core.lightning.Invoice;
 import com.greenharborlabs.l402.core.lightning.InvoiceStatus;
 import com.greenharborlabs.l402.core.lightning.LightningBackend;
-import com.greenharborlabs.l402.core.lightning.PaymentPreimage;
 import com.greenharborlabs.l402.core.macaroon.Caveat;
 import com.greenharborlabs.l402.core.macaroon.CapabilitiesCaveatVerifier;
 import com.greenharborlabs.l402.core.macaroon.CaveatVerifier;
-import com.greenharborlabs.l402.core.macaroon.L402VerificationContext;
 import com.greenharborlabs.l402.core.macaroon.Macaroon;
 import com.greenharborlabs.l402.core.macaroon.MacaroonIdentifier;
 import com.greenharborlabs.l402.core.macaroon.MacaroonMinter;
@@ -17,6 +15,7 @@ import com.greenharborlabs.l402.core.macaroon.RootKeyStore;
 import com.greenharborlabs.l402.core.macaroon.ServicesCaveatVerifier;
 import com.greenharborlabs.l402.core.macaroon.ValidUntilCaveatVerifier;
 import com.greenharborlabs.l402.core.protocol.L402Credential;
+import com.greenharborlabs.l402.core.protocol.L402Validator;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -160,12 +159,12 @@ class L402SecurityFilterTest {
                 L402EarningsTracker l402EarningsTracker,
                 L402Properties l402Properties
         ) {
-            var filter = new L402SecurityFilter(
-                    endpointRegistry, lightningBackendBean, rootKeyStore, credentialStore, caveatVerifiers, "test-service",
-                    null, l402Properties
-            );
-            filter.setEarningsTracker(l402EarningsTracker);
-            return filter;
+            var validator = new L402Validator(rootKeyStore, credentialStore, caveatVerifiers, "test-service");
+            var challengeService = new L402ChallengeService(
+                    rootKeyStore, lightningBackendBean, l402Properties, null, l402EarningsTracker, null);
+            return new L402SecurityFilter(
+                    endpointRegistry, validator, challengeService, "test-service",
+                    null, l402EarningsTracker, null);
         }
 
         @Bean

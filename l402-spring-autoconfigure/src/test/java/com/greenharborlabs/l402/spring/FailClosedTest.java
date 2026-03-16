@@ -7,6 +7,7 @@ import com.greenharborlabs.l402.core.lightning.LightningBackend;
 import com.greenharborlabs.l402.core.macaroon.CaveatVerifier;
 import com.greenharborlabs.l402.core.macaroon.RootKeyStore;
 import com.greenharborlabs.l402.core.protocol.L402Credential;
+import com.greenharborlabs.l402.core.protocol.L402Validator;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -113,9 +114,12 @@ class FailClosedTest {
                 CredentialStore credentialStore,
                 List<CaveatVerifier> caveatVerifiers
         ) {
+            var validator = new L402Validator(rootKeyStore, credentialStore, caveatVerifiers, "test-service");
+            var challengeService = new L402ChallengeService(
+                    rootKeyStore, lightningBackendBean, null, null, null, null);
             return new L402SecurityFilter(
-                    endpointRegistry, lightningBackendBean, rootKeyStore, credentialStore, caveatVerifiers, "test-service"
-            );
+                    endpointRegistry, validator, challengeService, "test-service",
+                    null, null, null);
         }
 
         @Bean

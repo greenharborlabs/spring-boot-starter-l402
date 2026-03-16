@@ -14,6 +14,7 @@ import com.greenharborlabs.l402.core.macaroon.RootKeyStore;
 import com.greenharborlabs.l402.core.macaroon.ServicesCaveatVerifier;
 import com.greenharborlabs.l402.core.macaroon.ValidUntilCaveatVerifier;
 import com.greenharborlabs.l402.core.protocol.L402Credential;
+import com.greenharborlabs.l402.core.protocol.L402Validator;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -305,12 +306,12 @@ class L402RateLimitingTest {
                 L402EarningsTracker l402EarningsTracker,
                 L402RateLimiter l402RateLimiter
         ) {
-            var filter = new L402SecurityFilter(
-                    endpointRegistry, lightningBackendBean, rootKeyStore, credentialStore, caveatVerifiers, SERVICE_NAME
-            );
-            filter.setEarningsTracker(l402EarningsTracker);
-            filter.setRateLimiter(l402RateLimiter);
-            return filter;
+            var validator = new L402Validator(rootKeyStore, credentialStore, caveatVerifiers, SERVICE_NAME);
+            var challengeService = new L402ChallengeService(
+                    rootKeyStore, lightningBackendBean, null, null, l402EarningsTracker, l402RateLimiter);
+            return new L402SecurityFilter(
+                    endpointRegistry, validator, challengeService, SERVICE_NAME,
+                    null, l402EarningsTracker, l402RateLimiter);
         }
 
         @Bean
@@ -372,11 +373,12 @@ class L402RateLimitingTest {
                 L402EarningsTracker l402EarningsTracker
         ) {
             // No rate limiter set — disabled
-            var filter = new L402SecurityFilter(
-                    endpointRegistry, lightningBackendBean, rootKeyStore, credentialStore, caveatVerifiers, SERVICE_NAME
-            );
-            filter.setEarningsTracker(l402EarningsTracker);
-            return filter;
+            var validator = new L402Validator(rootKeyStore, credentialStore, caveatVerifiers, SERVICE_NAME);
+            var challengeService = new L402ChallengeService(
+                    rootKeyStore, lightningBackendBean, null, null, l402EarningsTracker, null);
+            return new L402SecurityFilter(
+                    endpointRegistry, validator, challengeService, SERVICE_NAME,
+                    null, l402EarningsTracker, null);
         }
 
         @Bean
@@ -445,13 +447,12 @@ class L402RateLimitingTest {
                 L402RateLimiter l402RateLimiter,
                 L402Properties l402Properties
         ) {
-            var filter = new L402SecurityFilter(
-                    endpointRegistry, lightningBackendBean, rootKeyStore, credentialStore,
-                    caveatVerifiers, SERVICE_NAME, null, l402Properties
-            );
-            filter.setEarningsTracker(l402EarningsTracker);
-            filter.setRateLimiter(l402RateLimiter);
-            return filter;
+            var validator = new L402Validator(rootKeyStore, credentialStore, caveatVerifiers, SERVICE_NAME);
+            var challengeService = new L402ChallengeService(
+                    rootKeyStore, lightningBackendBean, l402Properties, null, l402EarningsTracker, l402RateLimiter);
+            return new L402SecurityFilter(
+                    endpointRegistry, validator, challengeService, SERVICE_NAME,
+                    null, l402EarningsTracker, l402RateLimiter);
         }
 
         @Bean
@@ -521,13 +522,12 @@ class L402RateLimitingTest {
                 L402RateLimiter l402RateLimiter,
                 L402Properties l402Properties
         ) {
-            var filter = new L402SecurityFilter(
-                    endpointRegistry, lightningBackendBean, rootKeyStore, credentialStore,
-                    caveatVerifiers, SERVICE_NAME, null, l402Properties
-            );
-            filter.setEarningsTracker(l402EarningsTracker);
-            filter.setRateLimiter(l402RateLimiter);
-            return filter;
+            var validator = new L402Validator(rootKeyStore, credentialStore, caveatVerifiers, SERVICE_NAME);
+            var challengeService = new L402ChallengeService(
+                    rootKeyStore, lightningBackendBean, l402Properties, null, l402EarningsTracker, l402RateLimiter);
+            return new L402SecurityFilter(
+                    endpointRegistry, validator, challengeService, SERVICE_NAME,
+                    null, l402EarningsTracker, l402RateLimiter);
         }
 
         @Bean

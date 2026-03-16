@@ -13,6 +13,7 @@ import com.greenharborlabs.l402.core.macaroon.RootKeyStore;
 import jakarta.servlet.http.HttpServletRequest;
 
 import org.springframework.context.ApplicationContext;
+import org.jspecify.annotations.Nullable;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -42,27 +43,23 @@ public class L402ChallengeService {
     private final ApplicationContext applicationContext;
     private final String serviceName;
 
-    private volatile L402EarningsTracker earningsTracker;
-    private volatile L402RateLimiter rateLimiter;
+    private final L402EarningsTracker earningsTracker;
+    private final L402RateLimiter rateLimiter;
     private volatile boolean reverseProxyWarningLogged;
 
     public L402ChallengeService(RootKeyStore rootKeyStore,
                                  LightningBackend lightningBackend,
                                  L402Properties properties,
-                                 ApplicationContext applicationContext) {
+                                 ApplicationContext applicationContext,
+                                 @Nullable L402EarningsTracker earningsTracker,
+                                 @Nullable L402RateLimiter rateLimiter) {
         this.rootKeyStore = Objects.requireNonNull(rootKeyStore, "rootKeyStore must not be null");
         this.lightningBackend = Objects.requireNonNull(lightningBackend, "lightningBackend must not be null");
         this.properties = properties;
         this.applicationContext = applicationContext;
         String svcName = (properties != null) ? properties.getServiceName() : null;
         this.serviceName = (svcName == null || svcName.isBlank()) ? "default" : svcName;
-    }
-
-    public void setEarningsTracker(L402EarningsTracker earningsTracker) {
         this.earningsTracker = earningsTracker;
-    }
-
-    public void setRateLimiter(L402RateLimiter rateLimiter) {
         this.rateLimiter = rateLimiter;
     }
 

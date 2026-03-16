@@ -168,38 +168,21 @@ public class L402AutoConfiguration {
                                                       ApplicationContext applicationContext,
                                                       L402EarningsTracker l402EarningsTracker,
                                                       @Autowired(required = false) L402RateLimiter l402RateLimiter) {
-        var service = new L402ChallengeService(rootKeyStore, lightningBackend,
-                properties, applicationContext);
-        service.setEarningsTracker(l402EarningsTracker);
-        if (l402RateLimiter != null) {
-            service.setRateLimiter(l402RateLimiter);
-        }
-        return service;
+        return new L402ChallengeService(rootKeyStore, lightningBackend,
+                properties, applicationContext, l402EarningsTracker, l402RateLimiter);
     }
 
     @Bean
     @ConditionalOnMissingBean
     public L402SecurityFilter l402SecurityFilter(L402EndpointRegistry registry,
-                                                  LightningBackend lightningBackend,
-                                                  RootKeyStore rootKeyStore,
                                                   L402Validator l402Validator,
-                                                  ApplicationContext applicationContext,
-                                                  L402Properties properties,
                                                   L402ChallengeService l402ChallengeService,
+                                                  L402Properties properties,
                                                   @Autowired(required = false) L402Metrics l402Metrics,
                                                   L402EarningsTracker l402EarningsTracker,
                                                   @Autowired(required = false) L402RateLimiter l402RateLimiter) {
-        var filter = new L402SecurityFilter(registry, lightningBackend, rootKeyStore,
-                l402Validator, applicationContext, properties.getServiceName(), properties);
-        filter.setChallengeService(l402ChallengeService);
-        if (l402Metrics != null) {
-            filter.setMetrics(l402Metrics);
-        }
-        filter.setEarningsTracker(l402EarningsTracker);
-        if (l402RateLimiter != null) {
-            filter.setRateLimiter(l402RateLimiter);
-        }
-        return filter;
+        return new L402SecurityFilter(registry, l402Validator, l402ChallengeService,
+                properties.getServiceName(), l402Metrics, l402EarningsTracker, l402RateLimiter);
     }
 
     @Bean

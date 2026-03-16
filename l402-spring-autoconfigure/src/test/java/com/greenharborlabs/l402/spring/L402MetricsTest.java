@@ -11,6 +11,7 @@ import com.greenharborlabs.l402.core.macaroon.MacaroonMinter;
 import com.greenharborlabs.l402.core.macaroon.MacaroonSerializer;
 import com.greenharborlabs.l402.core.macaroon.RootKeyStore;
 import com.greenharborlabs.l402.core.protocol.L402Credential;
+import com.greenharborlabs.l402.core.protocol.L402Validator;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -146,11 +147,12 @@ class L402MetricsTest {
                 List<CaveatVerifier> caveatVerifiers,
                 L402Metrics l402Metrics
         ) {
-            var filter = new L402SecurityFilter(
-                    endpointRegistry, lightningBackendBean, rootKeyStore, credentialStore, caveatVerifiers, "test-service"
-            );
-            filter.setMetrics(l402Metrics);
-            return filter;
+            var validator = new L402Validator(rootKeyStore, credentialStore, caveatVerifiers, "test-service");
+            var challengeService = new L402ChallengeService(
+                    rootKeyStore, lightningBackendBean, null, null, null, null);
+            return new L402SecurityFilter(
+                    endpointRegistry, validator, challengeService, "test-service",
+                    l402Metrics, null, null);
         }
 
         @Bean

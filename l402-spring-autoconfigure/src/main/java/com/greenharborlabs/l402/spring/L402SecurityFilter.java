@@ -1,10 +1,6 @@
 package com.greenharborlabs.l402.spring;
 
-import com.greenharborlabs.l402.core.credential.CredentialStore;
-import com.greenharborlabs.l402.core.lightning.LightningBackend;
-import com.greenharborlabs.l402.core.macaroon.CaveatVerifier;
 import com.greenharborlabs.l402.core.macaroon.L402VerificationContext;
-import com.greenharborlabs.l402.core.macaroon.RootKeyStore;
 import com.greenharborlabs.l402.core.protocol.ErrorCode;
 import com.greenharborlabs.l402.core.protocol.L402Credential;
 import com.greenharborlabs.l402.core.protocol.L402Exception;
@@ -20,12 +16,11 @@ import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
-import org.springframework.context.ApplicationContext;
+import org.jspecify.annotations.Nullable;
 
 import java.io.IOException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.List;
 import java.util.Objects;
 
 /**
@@ -48,152 +43,32 @@ public class L402SecurityFilter implements Filter {
     private static final String AUTHORIZATION_HEADER = "Authorization";
 
     private final L402EndpointRegistry registry;
-    private final LightningBackend lightningBackend;
-    private final RootKeyStore rootKeyStore;
     private final L402Validator validator;
-    private final ApplicationContext applicationContext;
+    private final L402ChallengeService challengeService;
     private final String serviceName;
-    private final L402Properties properties;
-    private volatile L402Metrics metrics;
-    private volatile L402EarningsTracker earningsTracker;
-    private volatile L402RateLimiter rateLimiter;
-    private volatile L402ChallengeService challengeService;
+    private final L402Metrics metrics;
+    private final L402EarningsTracker earningsTracker;
+    private final L402RateLimiter rateLimiter;
 
     /**
-     * Primary constructor accepting a pre-built L402Validator and properties (used by auto-configuration).
+     * Canonical constructor. All dependencies are provided up front; optional
+     * collaborators ({@code metrics}, {@code earningsTracker}, {@code rateLimiter})
+     * may be {@code null}.
      */
     public L402SecurityFilter(L402EndpointRegistry registry,
-                              LightningBackend lightningBackend,
-                              RootKeyStore rootKeyStore,
                               L402Validator validator,
-                              ApplicationContext applicationContext,
+                              L402ChallengeService challengeService,
                               String serviceName,
-                              L402Properties properties) {
+                              @Nullable L402Metrics metrics,
+                              @Nullable L402EarningsTracker earningsTracker,
+                              @Nullable L402RateLimiter rateLimiter) {
         this.registry = Objects.requireNonNull(registry, "registry must not be null");
-        this.lightningBackend = Objects.requireNonNull(lightningBackend, "lightningBackend must not be null");
-        this.rootKeyStore = Objects.requireNonNull(rootKeyStore, "rootKeyStore must not be null");
         this.validator = Objects.requireNonNull(validator, "validator must not be null");
-        this.applicationContext = applicationContext;
+        this.challengeService = Objects.requireNonNull(challengeService, "challengeService must not be null");
         this.serviceName = (serviceName == null || serviceName.isBlank()) ? "default" : serviceName;
-        this.properties = properties;
-    }
-
-    /**
-     * Backward-compatible primary constructor without properties parameter.
-     */
-    public L402SecurityFilter(L402EndpointRegistry registry,
-                              LightningBackend lightningBackend,
-                              RootKeyStore rootKeyStore,
-                              L402Validator validator,
-                              ApplicationContext applicationContext,
-                              String serviceName) {
-        this(registry, lightningBackend, rootKeyStore, validator, applicationContext, serviceName, null);
-    }
-
-    /**
-     * Backward-compatible constructor that creates the L402Validator internally.
-     */
-    public L402SecurityFilter(L402EndpointRegistry registry,
-                              LightningBackend lightningBackend,
-                              RootKeyStore rootKeyStore,
-                              CredentialStore credentialStore,
-                              List<CaveatVerifier> caveatVerifiers,
-                              String serviceName) {
-        this(registry, lightningBackend, rootKeyStore, credentialStore,
-                caveatVerifiers, serviceName, null);
-    }
-
-    /**
-     * Backward-compatible constructor that creates the L402Validator internally.
-     */
-    public L402SecurityFilter(L402EndpointRegistry registry,
-                              LightningBackend lightningBackend,
-                              RootKeyStore rootKeyStore,
-                              CredentialStore credentialStore,
-                              List<CaveatVerifier> caveatVerifiers,
-                              String serviceName,
-                              ApplicationContext applicationContext) {
-        this(registry, lightningBackend, rootKeyStore, credentialStore,
-                caveatVerifiers, serviceName, applicationContext, null);
-    }
-
-    /**
-     * Backward-compatible constructor that creates the L402Validator internally,
-     * with optional L402Properties for forwarded header trust configuration.
-     */
-    public L402SecurityFilter(L402EndpointRegistry registry,
-                              LightningBackend lightningBackend,
-                              RootKeyStore rootKeyStore,
-                              CredentialStore credentialStore,
-                              List<CaveatVerifier> caveatVerifiers,
-                              String serviceName,
-                              ApplicationContext applicationContext,
-                              L402Properties properties) {
-        this(registry, lightningBackend, rootKeyStore,
-                new L402Validator(
-                        Objects.requireNonNull(rootKeyStore, "rootKeyStore must not be null"),
-                        Objects.requireNonNull(credentialStore, "credentialStore must not be null"),
-                        Objects.requireNonNull(caveatVerifiers, "caveatVerifiers must not be null"),
-                        (serviceName == null || serviceName.isBlank()) ? "default" : serviceName),
-                applicationContext,
-                serviceName,
-                properties);
-    }
-
-    /**
-     * Sets the optional metrics recorder. When non-null, the filter will
-     * record Micrometer counters at each decision point (challenge, pass, reject).
-     */
-    public void setMetrics(L402Metrics metrics) {
         this.metrics = metrics;
-    }
-
-    /**
-     * Sets the optional earnings tracker. When non-null, the filter will
-     * record invoice creation and settlement events for the actuator endpoint.
-     */
-    public void setEarningsTracker(L402EarningsTracker earningsTracker) {
         this.earningsTracker = earningsTracker;
-    }
-
-    /**
-     * Sets the optional rate limiter. When non-null, the filter will check
-     * rate limits before issuing 402 challenges to prevent invoice flooding.
-     */
-    public void setRateLimiter(L402RateLimiter rateLimiter) {
         this.rateLimiter = rateLimiter;
-    }
-
-    /**
-     * Sets the challenge service that handles health checks, rate limiting,
-     * invoice creation, and macaroon minting. When not set, an internal
-     * instance is created lazily from the filter's own dependencies.
-     */
-    public void setChallengeService(L402ChallengeService challengeService) {
-        this.challengeService = challengeService;
-    }
-
-    /**
-     * Returns the challenge service, creating an internal one lazily if none
-     * was explicitly set via {@link #setChallengeService(L402ChallengeService)}.
-     * The internal instance is kept in sync with the filter's optional dependencies
-     * (metrics, earnings tracker, rate limiter).
-     */
-    private L402ChallengeService getOrCreateChallengeService() {
-        L402ChallengeService svc = this.challengeService;
-        if (svc != null) {
-            return svc;
-        }
-        // Create an internal instance from the filter's own dependencies.
-        // This preserves backward compatibility for callers that construct
-        // the filter directly without an externally provided ChallengeService.
-        svc = new L402ChallengeService(
-                rootKeyStore, lightningBackend, properties,
-                applicationContext);
-        svc.setEarningsTracker(this.earningsTracker);
-        svc.setRateLimiter(this.rateLimiter);
-        this.challengeService = svc;
-        return svc;
     }
 
     @Override
@@ -263,7 +138,7 @@ public class L402SecurityFilter implements Filter {
                 // Consume rate limiter token on auth failure to penalize brute-force probing
                 L402RateLimiter limiter = this.rateLimiter;
                 if (limiter != null) {
-                    limiter.tryAcquire(getOrCreateChallengeService().resolveClientIp(httpRequest));
+                    limiter.tryAcquire(this.challengeService.resolveClientIp(httpRequest));
                 }
                 ErrorCode errorCode = e.getErrorCode();
                 log.log(System.Logger.Level.WARNING, "L402 validation failed, errorCode={0}, tokenId={1}", errorCode, e.getTokenId());
@@ -290,8 +165,7 @@ public class L402SecurityFilter implements Filter {
         // 3. No valid credential — delegate to ChallengeService for health check,
         //    rate limiting, invoice creation, and macaroon minting.
         try {
-            L402ChallengeService svc = getOrCreateChallengeService();
-            L402ChallengeResult challengeResult = svc.createChallenge(httpRequest, config);
+            L402ChallengeResult challengeResult = this.challengeService.createChallenge(httpRequest, config);
             writePaymentRequiredResponse(httpResponse, challengeResult);
             recordChallenge(path);
         } catch (L402RateLimitedException _) {
