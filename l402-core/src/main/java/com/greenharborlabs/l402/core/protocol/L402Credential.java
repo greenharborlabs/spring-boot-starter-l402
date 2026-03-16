@@ -11,8 +11,6 @@ import java.util.Collections;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * An authenticated L402 credential consisting of a macaroon, preimage proof-of-payment,
@@ -39,8 +37,6 @@ public record L402Credential(Macaroon macaroon, PaymentPreimage preimage, String
         this(macaroon, preimage, tokenId, List.of());
     }
 
-    private static final Pattern HEADER_PATTERN =
-            Pattern.compile("(LSAT|L402) ([A-Za-z0-9+/=,]+):([a-fA-F0-9]{64})");
     private static final HexFormat HEX = HexFormat.of();
 
     /**
@@ -51,19 +47,21 @@ public record L402Credential(Macaroon macaroon, PaymentPreimage preimage, String
      * @throws L402Exception with {@link ErrorCode#MALFORMED_HEADER} on any parse failure
      */
     public static L402Credential parse(String authorizationHeader) {
-        if (authorizationHeader == null || authorizationHeader.isEmpty()) {
-            throw new L402Exception(ErrorCode.MALFORMED_HEADER,
-                    "Authorization header must not be null or empty", null);
-        }
+        return parse(L402HeaderComponents.extractOrThrow(authorizationHeader));
+    }
 
-        Matcher matcher = HEADER_PATTERN.matcher(authorizationHeader);
-        if (!matcher.matches()) {
-            throw new L402Exception(ErrorCode.MALFORMED_HEADER,
-                    "Authorization header does not match L402/LSAT format", null);
-        }
+    /**
+     * Parses pre-extracted header components into an {@link L402Credential}.
+     *
+     * @param components the structurally validated header components
+     * @return a parsed credential
+     * @throws L402Exception with {@link ErrorCode#MALFORMED_HEADER} on any decode failure
+     */
+    public static L402Credential parse(L402HeaderComponents components) {
+        Objects.requireNonNull(components, "components must not be null");
 
-        String tokensString = matcher.group(2);
-        String preimageHex = matcher.group(3);
+        String tokensString = components.macaroonBase64();
+        String preimageHex = components.preimageHex();
 
         // Split on comma to support multi-token headers: "token1,token2:preimage"
         String[] tokenParts = tokensString.split(",", -1);

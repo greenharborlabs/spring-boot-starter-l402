@@ -57,7 +57,7 @@ public final class L402Validator {
                 .serviceName(serviceName)
                 .currentTime(Instant.now())
                 .build();
-        return validate(authorizationHeader, defaultContext);
+        return validate(L402HeaderComponents.extractOrThrow(authorizationHeader), defaultContext);
     }
 
     /**
@@ -69,10 +69,23 @@ public final class L402Validator {
      * @throws L402Exception on any validation failure
      */
     public ValidationResult validate(String authorizationHeader, L402VerificationContext context) {
+        return validate(L402HeaderComponents.extractOrThrow(authorizationHeader), context);
+    }
+
+    /**
+     * Validates pre-parsed L402 header components using the provided verification context.
+     *
+     * @param components the structurally validated header components
+     * @param context    the verification context (service name, current time, capabilities, etc.)
+     * @return a {@link ValidationResult} containing the credential and freshness flag
+     * @throws L402Exception on any validation failure
+     */
+    public ValidationResult validate(L402HeaderComponents components, L402VerificationContext context) {
+        Objects.requireNonNull(components, "components must not be null");
         Objects.requireNonNull(context, "context must not be null");
 
-        // 1. Parse the authorization header
-        L402Credential credential = L402Credential.parse(authorizationHeader);
+        // 1. Parse the pre-extracted header components
+        L402Credential credential = L402Credential.parse(components);
         String tokenId = credential.tokenId();
 
         // 2. Check credential cache — verify presented credential matches cached, re-verify caveats.

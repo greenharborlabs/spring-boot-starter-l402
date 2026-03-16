@@ -736,6 +736,26 @@ class L402ValidatorTest {
             assertThat(capturedContext.get()).isSameAs(externalContext);
             assertThat(capturedContext.get().getRequestedCapability()).isEqualTo("custom-cap");
         }
+
+        @Test
+        @DisplayName("validate with pre-parsed L402HeaderComponents returns fresh ValidationResult")
+        void validateWithPreParsedComponentsReturnsFreshResult() {
+            L402Validator validator = new L402Validator(
+                    rootKeyStore, credentialStore, List.of(), SERVICE_NAME);
+
+            L402HeaderComponents components = L402HeaderComponents.extractOrThrow(validAuthHeader);
+            L402VerificationContext context = L402VerificationContext.builder()
+                    .serviceName(SERVICE_NAME)
+                    .currentTime(Instant.now())
+                    .build();
+
+            L402Validator.ValidationResult result = validator.validate(components, context);
+
+            assertThat(result).isNotNull();
+            assertThat(result.freshValidation()).isTrue();
+            assertThat(result.credential().tokenId()).isEqualTo(tokenIdHex);
+            assertThat(result.credential().preimage().toHex()).isEqualTo(HEX.formatHex(preimageBytes));
+        }
     }
 
     /** Creates a CredentialStore that captures the TTL passed to store(). */

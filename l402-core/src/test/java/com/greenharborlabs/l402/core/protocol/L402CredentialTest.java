@@ -131,7 +131,7 @@ class L402CredentialTest {
         @Test
         @DisplayName("throws MALFORMED_HEADER for null header")
         void throwsForNull() {
-            assertThatThrownBy(() -> L402Credential.parse(null))
+            assertThatThrownBy(() -> L402Credential.parse((String) null))
                     .isInstanceOf(L402Exception.class)
                     .extracting(e -> ((L402Exception) e).getErrorCode())
                     .isEqualTo(ErrorCode.MALFORMED_HEADER);
@@ -377,6 +377,36 @@ class L402CredentialTest {
             assertThat(credential).isNotNull();
             assertThat(credential.tokenId()).isEqualTo(tokenIdHex);
             assertThat(credential.additionalMacaroons()).hasSize(1);
+        }
+    }
+
+    @Nested
+    @DisplayName("parse(L402HeaderComponents)")
+    class ParseFromComponents {
+
+        @Test
+        @DisplayName("parses valid components into correct credential")
+        void parsesValidComponents() {
+            var components = new L402HeaderComponents("L402", macaroonBase64, preimageHex);
+
+            L402Credential credential = L402Credential.parse(components);
+
+            assertThat(credential).isNotNull();
+            assertThat(credential.tokenId()).isEqualTo(tokenIdHex);
+            assertThat(credential.preimage().toHex()).isEqualTo(preimageHex);
+            assertThat(credential.macaroon().identifier()).isEqualTo(macaroon.identifier());
+            assertThat(credential.additionalMacaroons()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("throws MALFORMED_HEADER for invalid base64 in macaroonBase64")
+        void throwsForInvalidBase64() {
+            var components = new L402HeaderComponents("L402", "!!!not+valid+base64!!!", preimageHex);
+
+            assertThatThrownBy(() -> L402Credential.parse(components))
+                    .isInstanceOf(L402Exception.class)
+                    .extracting(e -> ((L402Exception) e).getErrorCode())
+                    .isEqualTo(ErrorCode.MALFORMED_HEADER);
         }
     }
 }
