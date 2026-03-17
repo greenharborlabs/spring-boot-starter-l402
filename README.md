@@ -175,7 +175,6 @@ All properties are under the `l402.*` prefix.
 | `l402.default-timeout-seconds` | `long` | `3600` | Credential TTL in seconds. |
 | `l402.root-key-store` | `string` | `file` | Root key storage: `file` or `memory`. |
 | `l402.root-key-store-path` | `string` | `~/.l402/keys` | Directory for file-based root key storage. |
-| `l402.credential-cache` | `string` | `caffeine` | Cache implementation. Caffeine used when on classpath. |
 | `l402.credential-cache-max-size` | `int` | `10000` | Maximum cached credentials. |
 | `l402.security-mode` | `string` | `auto` | Security integration mode: `auto`, `servlet`, or `spring-security`. See [Spring Security Integration](#spring-security-integration). |
 | `l402.test-mode` | `boolean` | `false` | Enable test mode (dummy invoices, auto-settle). |

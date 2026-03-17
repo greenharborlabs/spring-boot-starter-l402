@@ -13,7 +13,6 @@ You do not use this module directly. Instead, add the `l402-spring-boot-starter`
 - [Bean Creation and Conditions](#bean-creation-and-conditions)
 - [Lightning Backend Selection](#lightning-backend-selection)
 - [Root Key Store](#root-key-store)
-- [Credential Cache](#credential-cache)
 - [Security Filter](#security-filter)
 - [Rate Limiting](#rate-limiting)
 - [Health Cache](#health-cache)
@@ -73,7 +72,6 @@ All properties are bound from the `l402.*` namespace via `L402Properties`.
 
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
-| `l402.credential-cache` | `string` | `"caffeine"` | Cache implementation for validated L402 credentials. `caffeine` requires the Caffeine library on the classpath. |
 | `l402.credential-cache-max-size` | `int` | `10000` | Maximum number of validated credentials to cache. Higher values use more memory but reduce re-verification overhead. |
 
 ### Rate Limiting Properties
@@ -549,7 +547,6 @@ The metadata includes value hints for enum-like properties:
 
 - `l402.backend`: `lnbits`, `lnd`
 - `l402.root-key-store`: `file`, `memory`
-- `l402.credential-cache`: `caffeine`, `none`
 
 The `spring-boot-configuration-processor` annotation processor is configured in `build.gradle.kts` to generate additional metadata from `L402Properties` at compile time.
 

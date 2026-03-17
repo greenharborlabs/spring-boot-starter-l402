@@ -41,9 +41,21 @@ public class LndBackend implements LightningBackend, AutoCloseable {
         this.rpcDeadlineSeconds = rpcDeadlineSeconds;
     }
 
+    private static final int SHUTDOWN_TIMEOUT_SECONDS = 5;
+
     @Override
     public void close() {
         channel.shutdown();
+        try {
+            if (!channel.awaitTermination(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                log.log(System.Logger.Level.WARNING,
+                        "Channel did not terminate within {0}s, forcing shutdown", SHUTDOWN_TIMEOUT_SECONDS);
+                channel.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            channel.shutdownNow();
+        }
     }
 
     private static final long DEFAULT_EXPIRY_SECONDS = 3600L;
@@ -84,7 +96,7 @@ public class LndBackend implements LightningBackend, AutoCloseable {
                 throw new LndTimeoutException(
                         "LND createInvoice timed out after " + rpcDeadlineSeconds + "s", e);
             }
-            throw new LndException("Failed to create invoice via LND: " + e.getStatus(), e);
+            throw new LndException("Failed to create invoice via LND: " + formatStatus(e.getStatus()), e);
         }
     }
 
@@ -104,8 +116,15 @@ public class LndBackend implements LightningBackend, AutoCloseable {
                 throw new LndTimeoutException(
                         "LND lookupInvoice timed out after " + rpcDeadlineSeconds + "s", e);
             }
-            throw new LndException("Failed to lookup invoice via LND: " + e.getStatus(), e);
+            throw new LndException("Failed to lookup invoice via LND: " + formatStatus(e.getStatus()), e);
         }
+    }
+
+    private static String formatStatus(Status status) {
+        String description = status.getDescription();
+        return description != null
+                ? status.getCode() + ": " + description
+                : String.valueOf(status.getCode());
     }
 
     @Override

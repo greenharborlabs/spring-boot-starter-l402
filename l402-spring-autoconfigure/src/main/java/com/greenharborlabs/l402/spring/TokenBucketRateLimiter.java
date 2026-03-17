@@ -1,7 +1,7 @@
 package com.greenharborlabs.l402.spring;
 
+import java.util.ArrayList;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -22,7 +22,6 @@ public class TokenBucketRateLimiter implements L402RateLimiter {
     private final int maxTokens;
     private final double refillRatePerSecond;
     private final ConcurrentHashMap<String, Bucket> buckets = new ConcurrentHashMap<>();
-    private final AtomicInteger bucketCount = new AtomicInteger();
     private final AtomicLong callCounter = new AtomicLong();
 
     /**
@@ -52,10 +51,10 @@ public class TokenBucketRateLimiter implements L402RateLimiter {
         buckets.compute(key, (_, existing) -> {
             long now = System.nanoTime();
             if (existing == null) {
-                // Atomically increment only if below MAX_BUCKETS — avoids TOCTOU race
-                // between concurrent compute() calls on different hash bins.
-                int prev = bucketCount.getAndUpdate(c -> c < MAX_BUCKETS ? c + 1 : c);
-                if (prev >= MAX_BUCKETS) {
+                // Check map size directly — eliminates the race between a separate
+                // bucketCount AtomicInteger and actual map mutations. size() on
+                // ConcurrentHashMap is O(counterCells) which is negligible here.
+                if (buckets.size() >= MAX_BUCKETS) {
                     return null; // don't create bucket — at capacity
                 }
                 // New bucket: start full, consume one token immediately
@@ -84,13 +83,19 @@ public class TokenBucketRateLimiter implements L402RateLimiter {
         long now = System.nanoTime();
         // A bucket is stale if it has been idle long enough to fully refill twice over
         double staleThresholdNanos = (maxTokens / refillRatePerSecond) * 2_000_000_000.0;
-        buckets.entrySet().removeIf(entry -> {
-            boolean stale = (now - entry.getValue().lastRefillNanos) > staleThresholdNanos;
-            if (stale) {
-                bucketCount.decrementAndGet();
+
+        // Collect stale keys first, then remove individually. This avoids the
+        // previous race where removeIf's side-effecting predicate decremented a
+        // separate bucketCount that could drift from the actual map size.
+        var staleKeys = new ArrayList<String>();
+        buckets.forEach((key, bucket) -> {
+            if ((now - bucket.lastRefillNanos) > staleThresholdNanos) {
+                staleKeys.add(key);
             }
-            return stale;
         });
+        for (String key : staleKeys) {
+            buckets.remove(key);
+        }
     }
 
     private static final class Bucket {

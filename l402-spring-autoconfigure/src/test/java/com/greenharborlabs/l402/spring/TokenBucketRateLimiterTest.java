@@ -7,7 +7,6 @@ import java.lang.reflect.Field;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -127,11 +126,6 @@ class TokenBucketRateLimiterTest {
         maxBucketsField.setAccessible(true);
         int maxBuckets = (int) maxBucketsField.get(null);
 
-        // Access the bucketCount AtomicInteger to keep it in sync with direct map manipulation
-        Field bucketCountField = TokenBucketRateLimiter.class.getDeclaredField("bucketCount");
-        bucketCountField.setAccessible(true);
-        var bucketCount = (AtomicInteger) bucketCountField.get(limiter);
-
         // Add a known key first, then fill up to capacity with dummy entries
         assertThat(limiter.tryAcquire("existing-key")).isTrue();
 
@@ -145,8 +139,6 @@ class TokenBucketRateLimiterTest {
         for (int i = currentSize; i < maxBuckets; i++) {
             buckets.put("dummy-" + i, dummyBucket);
         }
-        // Set bucketCount to match the map size (accounts for entries added via reflection)
-        bucketCount.set(maxBuckets);
 
         assertThat(buckets.size()).isEqualTo(maxBuckets);
 
@@ -158,12 +150,13 @@ class TokenBucketRateLimiterTest {
     }
 
     @Test
-    @DisplayName("bucketCount stays consistent with map size after concurrent operations")
+    @DisplayName("map size is consistent after concurrent operations with unique keys")
     void bucketCountConsistentAfterConcurrentOps() throws Exception {
         var limiter = new TokenBucketRateLimiter(5, 1.0);
         int threadCount = 200;
         var latch = new CountDownLatch(1);
         var threads = new Thread[threadCount];
+        var successCount = new AtomicInteger();
 
         // Each thread acquires with a unique key, creating a new bucket
         for (int i = 0; i < threadCount; i++) {
@@ -174,7 +167,9 @@ class TokenBucketRateLimiterTest {
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 }
-                limiter.tryAcquire("concurrent-key-" + idx);
+                if (limiter.tryAcquire("concurrent-key-" + idx)) {
+                    successCount.incrementAndGet();
+                }
             });
         }
 
@@ -183,19 +178,19 @@ class TokenBucketRateLimiterTest {
             t.join();
         }
 
-        // Verify bucketCount matches actual map size
+        // Verify map size matches the number of successful acquisitions.
+        // Since bucketCount was eliminated, the map IS the source of truth.
         Field bucketsField = TokenBucketRateLimiter.class.getDeclaredField("buckets");
         bucketsField.setAccessible(true);
         @SuppressWarnings("unchecked")
         var buckets = (ConcurrentHashMap<String, Object>) bucketsField.get(limiter);
 
-        Field bucketCountField = TokenBucketRateLimiter.class.getDeclaredField("bucketCount");
-        bucketCountField.setAccessible(true);
-        var bucketCount = (AtomicInteger) bucketCountField.get(limiter);
+        assertThat(buckets.size())
+                .as("map size should equal the number of successfully created buckets")
+                .isEqualTo(successCount.get());
 
-        assertThat(bucketCount.get())
-                .as("bucketCount should exactly match actual map size")
-                .isEqualTo(buckets.size());
+        // All 200 unique keys should have succeeded (well below MAX_BUCKETS)
+        assertThat(successCount.get()).isEqualTo(threadCount);
     }
 
     @Test

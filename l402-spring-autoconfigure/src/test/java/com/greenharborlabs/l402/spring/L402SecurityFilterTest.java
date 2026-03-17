@@ -93,6 +93,9 @@ class L402SecurityFilterTest {
     @Autowired
     private L402EarningsTracker earningsTracker;
 
+    @Autowired
+    private L402SecurityFilter l402SecurityFilter;
+
     // -----------------------------------------------------------------------
     // Test application and configuration
     // -----------------------------------------------------------------------
@@ -281,7 +284,7 @@ class L402SecurityFilterTest {
     class ValidCredential {
 
         @Test
-        @DisplayName("returns 200 with X-L402-Credential-Expires header but no X-L402-Token-Id")
+        @DisplayName("returns 200 with X-L402-Credential-Expires matching valid_until caveat")
         void validCredentialReturns200WithHeaders() throws Exception {
             ((StubLightningBackend) lightningBackend).setHealthy(true);
 
@@ -294,9 +297,16 @@ class L402SecurityFilterTest {
             byte[] tokenId = new byte[32];
             new SecureRandom().nextBytes(tokenId);
 
+            // Use a specific valid_until epoch so we can assert the header value
+            long validUntilEpoch = Instant.now().plusSeconds(TIMEOUT_SECONDS).getEpochSecond();
+            List<Caveat> caveats = List.of(
+                    new Caveat("services", SERVICE_NAME + ":0"),
+                    new Caveat(SERVICE_NAME + "_valid_until", String.valueOf(validUntilEpoch))
+            );
+
             // Mint a real macaroon using the known root key
             MacaroonIdentifier identifier = new MacaroonIdentifier(0, paymentHash, tokenId);
-            Macaroon macaroon = MacaroonMinter.mint(ROOT_KEY, identifier, null, validCaveats());
+            Macaroon macaroon = MacaroonMinter.mint(ROOT_KEY, identifier, null, caveats);
 
             // Serialize the macaroon to V2 binary and base64 encode
             byte[] serialized = MacaroonSerializer.serializeV2(macaroon);
@@ -308,12 +318,155 @@ class L402SecurityFilterTest {
             // Build the L402 Authorization header: L402 <base64-macaroon>:<hex-preimage>
             String authHeader = "L402 " + macaroonBase64 + ":" + preimageHex;
 
-            mockMvc.perform(get(PROTECTED_PATH)
+            var result = mockMvc.perform(get(PROTECTED_PATH)
                             .header("Authorization", authHeader))
                     .andExpect(status().isOk())
                     .andExpect(header().doesNotExist("X-L402-Token-Id"))
                     .andExpect(header().exists("X-L402-Credential-Expires"))
-                    .andExpect(content().string("protected-content"));
+                    .andExpect(content().string("protected-content"))
+                    .andReturn();
+
+            // The header must reflect the actual valid_until caveat, not a hardcoded default
+            String expiresHeader = result.getResponse().getHeader("X-L402-Credential-Expires");
+            Instant expiresInstant = Instant.parse(expiresHeader);
+            assertThat(expiresInstant).isEqualTo(Instant.ofEpochSecond(validUntilEpoch));
+        }
+
+        @Test
+        @DisplayName("falls back to default timeout when no valid_until caveat present")
+        void fallsBackToDefaultTimeoutWhenNoValidUntilCaveat() throws Exception {
+            ((StubLightningBackend) lightningBackend).setHealthy(true);
+
+            byte[] preimage = new byte[32];
+            new SecureRandom().nextBytes(preimage);
+            byte[] paymentHash = sha256(preimage);
+            byte[] tokenId = new byte[32];
+            new SecureRandom().nextBytes(tokenId);
+
+            // Caveats without valid_until — only services caveat
+            List<Caveat> caveats = List.of(
+                    new Caveat("services", SERVICE_NAME + ":0")
+            );
+
+            MacaroonIdentifier identifier = new MacaroonIdentifier(0, paymentHash, tokenId);
+            Macaroon macaroon = MacaroonMinter.mint(ROOT_KEY, identifier, null, caveats);
+            byte[] serialized = MacaroonSerializer.serializeV2(macaroon);
+            String macaroonBase64 = Base64.getEncoder().encodeToString(serialized);
+            String preimageHex = HEX.formatHex(preimage);
+            String authHeader = "L402 " + macaroonBase64 + ":" + preimageHex;
+
+            Instant before = Instant.now().plusSeconds(TIMEOUT_SECONDS);
+            var result = mockMvc.perform(get(PROTECTED_PATH)
+                            .header("Authorization", authHeader))
+                    .andExpect(status().isOk())
+                    .andExpect(header().exists("X-L402-Credential-Expires"))
+                    .andReturn();
+            Instant after = Instant.now().plusSeconds(TIMEOUT_SECONDS);
+
+            String expiresHeader = result.getResponse().getHeader("X-L402-Credential-Expires");
+            Instant expiresInstant = Instant.parse(expiresHeader);
+            // Fallback should be approximately now + timeoutSeconds
+            assertThat(expiresInstant).isBetween(before.minusSeconds(2), after.plusSeconds(2));
+        }
+
+        @Test
+        @DisplayName("uses earliest valid_until when multiple caveats present")
+        void usesEarliestValidUntilCaveat() throws Exception {
+            ((StubLightningBackend) lightningBackend).setHealthy(true);
+
+            byte[] preimage = new byte[32];
+            new SecureRandom().nextBytes(preimage);
+            byte[] paymentHash = sha256(preimage);
+            byte[] tokenId = new byte[32];
+            new SecureRandom().nextBytes(tokenId);
+
+            long earlierEpoch = Instant.now().plusSeconds(300).getEpochSecond();
+            long laterEpoch = Instant.now().plusSeconds(900).getEpochSecond();
+
+            List<Caveat> caveats = List.of(
+                    new Caveat("services", SERVICE_NAME + ":0"),
+                    new Caveat(SERVICE_NAME + "_valid_until", String.valueOf(laterEpoch)),
+                    new Caveat(SERVICE_NAME + "_valid_until", String.valueOf(earlierEpoch))
+            );
+
+            MacaroonIdentifier identifier = new MacaroonIdentifier(0, paymentHash, tokenId);
+            Macaroon macaroon = MacaroonMinter.mint(ROOT_KEY, identifier, null, caveats);
+            byte[] serialized = MacaroonSerializer.serializeV2(macaroon);
+            String macaroonBase64 = Base64.getEncoder().encodeToString(serialized);
+            String preimageHex = HEX.formatHex(preimage);
+            String authHeader = "L402 " + macaroonBase64 + ":" + preimageHex;
+
+            var result = mockMvc.perform(get(PROTECTED_PATH)
+                            .header("Authorization", authHeader))
+                    .andExpect(status().isOk())
+                    .andExpect(header().exists("X-L402-Credential-Expires"))
+                    .andReturn();
+
+            String expiresHeader = result.getResponse().getHeader("X-L402-Credential-Expires");
+            Instant expiresInstant = Instant.parse(expiresHeader);
+            assertThat(expiresInstant).isEqualTo(Instant.ofEpochSecond(earlierEpoch));
+        }
+
+        @Test
+        @DisplayName("falls back to default timeout when valid_until caveat value is unparseable")
+        void fallsBackToDefaultTimeoutWhenValidUntilCaveatUnparseable() {
+            byte[] preimage = new byte[32];
+            new SecureRandom().nextBytes(preimage);
+            byte[] paymentHash = sha256(preimage);
+            byte[] tokenId = new byte[32];
+            new SecureRandom().nextBytes(tokenId);
+
+            List<Caveat> caveats = List.of(
+                    new Caveat("services", SERVICE_NAME + ":0"),
+                    new Caveat(SERVICE_NAME + "_valid_until", "not-a-number")
+            );
+
+            MacaroonIdentifier identifier = new MacaroonIdentifier(0, paymentHash, tokenId);
+            Macaroon macaroon = MacaroonMinter.mint(ROOT_KEY, identifier, null, caveats);
+            L402Credential credential = new L402Credential(
+                    macaroon,
+                    new com.greenharborlabs.l402.core.lightning.PaymentPreimage(preimage),
+                    HEX.formatHex(tokenId));
+
+            L402EndpointConfig config = new L402EndpointConfig(
+                    "GET", PROTECTED_PATH, PRICE_SATS, TIMEOUT_SECONDS, "", "", "");
+
+            Instant before = Instant.now().plusSeconds(TIMEOUT_SECONDS);
+            Instant result = l402SecurityFilter.resolveCredentialExpiry(credential, config);
+            Instant after = Instant.now().plusSeconds(TIMEOUT_SECONDS);
+
+            assertThat(result).isBetween(before.minusSeconds(2), after.plusSeconds(2));
+        }
+
+        @Test
+        @DisplayName("uses valid caveat when mixed with unparseable caveat")
+        void usesValidCaveatWhenMixedWithUnparseableCaveat() {
+            byte[] preimage = new byte[32];
+            new SecureRandom().nextBytes(preimage);
+            byte[] paymentHash = sha256(preimage);
+            byte[] tokenId = new byte[32];
+            new SecureRandom().nextBytes(tokenId);
+
+            long validEpoch = Instant.now().plusSeconds(500).getEpochSecond();
+            List<Caveat> caveats = List.of(
+                    new Caveat("services", SERVICE_NAME + ":0"),
+                    new Caveat(SERVICE_NAME + "_valid_until", "garbage"),
+                    new Caveat(SERVICE_NAME + "_valid_until", String.valueOf(validEpoch))
+            );
+
+            MacaroonIdentifier identifier = new MacaroonIdentifier(0, paymentHash, tokenId);
+            Macaroon macaroon = MacaroonMinter.mint(ROOT_KEY, identifier, null, caveats);
+            L402Credential credential = new L402Credential(
+                    macaroon,
+                    new com.greenharborlabs.l402.core.lightning.PaymentPreimage(preimage),
+                    HEX.formatHex(tokenId));
+
+            L402EndpointConfig config = new L402EndpointConfig(
+                    "GET", PROTECTED_PATH, PRICE_SATS, TIMEOUT_SECONDS, "", "", "");
+
+            Instant result = l402SecurityFilter.resolveCredentialExpiry(credential, config);
+
+            assertThat(result).isEqualTo(Instant.ofEpochSecond(validEpoch));
         }
     }
 

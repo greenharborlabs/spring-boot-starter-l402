@@ -77,7 +77,7 @@ public class L402VerificationContext {
 
     public static final class Builder {
         private String serviceName;
-        private Instant currentTime = Instant.now();
+        private Instant currentTime;
         private Map<String, String> requestMetadata = Map.of();
         private String requestedCapability;
 
@@ -104,7 +104,8 @@ public class L402VerificationContext {
         }
 
         public L402VerificationContext build() {
-            return new L402VerificationContext(serviceName, currentTime, requestMetadata, requestedCapability);
+            Instant resolvedTime = currentTime != null ? currentTime : Instant.now();
+            return new L402VerificationContext(serviceName, resolvedTime, requestMetadata, requestedCapability);
         }
     }
 }

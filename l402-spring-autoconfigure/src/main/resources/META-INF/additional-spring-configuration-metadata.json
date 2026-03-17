@@ -41,15 +41,9 @@
       "defaultValue": "~/.l402/keys"
     },
     {
-      "name": "l402.credential-cache",
-      "type": "java.lang.String",
-      "description": "Credential cache implementation to use for storing validated L402 credentials. 'caffeine' requires the Caffeine library on the classpath; 'none' disables caching.",
-      "defaultValue": "caffeine"
-    },
-    {
       "name": "l402.credential-cache-max-size",
       "type": "java.lang.Integer",
-      "description": "Maximum number of validated credentials to cache. Only applies when l402.credential-cache=caffeine. Higher values use more memory but reduce re-verification overhead.",
+      "description": "Maximum number of validated credentials to cache. Higher values use more memory but reduce re-verification overhead.",
       "defaultValue": 10000
     },
     {
@@ -232,19 +226,6 @@
         {
           "value": "memory",
           "description": "Keep root keys in memory only. Keys are lost on application restart."
-        }
-      ]
-    },
-    {
-      "name": "l402.credential-cache",
-      "values": [
-        {
-          "value": "caffeine",
-          "description": "Use Caffeine as the credential cache. Requires com.github.ben-manes.caffeine:caffeine on the classpath."
-        },
-        {
-          "value": "none",
-          "description": "Disable credential caching. Every request re-verifies the macaroon and preimage."
         }
       ]
     }

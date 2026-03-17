@@ -138,7 +138,6 @@ All properties live under the `l402.*` prefix. The starter auto-configures defau
 | `l402.default-timeout-seconds` | `3600` | Default credential validity period (1 hour). |
 | `l402.root-key-store` | `file` | Root key storage: `file` (persistent) or `memory` (ephemeral). |
 | `l402.root-key-store-path` | `~/.l402/keys` | File path for persistent root key storage. |
-| `l402.credential-cache` | `caffeine` | Credential cache implementation. |
 | `l402.credential-cache-max-size` | `10000` | Maximum cached credentials. |
 | `l402.test-mode` | `false` | When `true`, skips Lightning payment verification (development only). |
 | `l402.health-cache.enabled` | `true` | Cache `isHealthy()` results to avoid hammering the backend. |

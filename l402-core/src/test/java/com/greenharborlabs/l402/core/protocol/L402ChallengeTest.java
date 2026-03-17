@@ -130,6 +130,65 @@ class L402ChallengeTest {
     }
 
     @Test
+    @DisplayName("toWwwAuthenticateHeader rejects bolt11 containing NUL (0x00)")
+    void headerRejectsBolt11WithNul() {
+        Macaroon macaroon = mintTestMacaroon();
+        L402Challenge challenge = new L402Challenge(macaroon, "lnbc100n1p0\0injected", 100, "test");
+
+        assertThatThrownBy(challenge::toWwwAuthenticateHeader)
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("illegal character")
+                .hasMessageContaining("0x0");
+    }
+
+    @Test
+    @DisplayName("toWwwAuthenticateHeader rejects bolt11 containing TAB (0x09)")
+    void headerRejectsBolt11WithTab() {
+        Macaroon macaroon = mintTestMacaroon();
+        L402Challenge challenge = new L402Challenge(macaroon, "lnbc100n1p0\tinjected", 100, "test");
+
+        assertThatThrownBy(challenge::toWwwAuthenticateHeader)
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("illegal character")
+                .hasMessageContaining("0x9");
+    }
+
+    @Test
+    @DisplayName("toWwwAuthenticateHeader rejects bolt11 containing BEL (0x07)")
+    void headerRejectsBolt11WithBel() {
+        Macaroon macaroon = mintTestMacaroon();
+        L402Challenge challenge = new L402Challenge(macaroon, "lnbc100n1p0\u0007injected", 100, "test");
+
+        assertThatThrownBy(challenge::toWwwAuthenticateHeader)
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("illegal character")
+                .hasMessageContaining("0x7");
+    }
+
+    @Test
+    @DisplayName("toWwwAuthenticateHeader rejects bolt11 containing DEL (0x7F)")
+    void headerRejectsBolt11WithDel() {
+        Macaroon macaroon = mintTestMacaroon();
+        L402Challenge challenge = new L402Challenge(macaroon, "lnbc100n1p0\u007Finjected", 100, "test");
+
+        assertThatThrownBy(challenge::toWwwAuthenticateHeader)
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("illegal character")
+                .hasMessageContaining("0x7f");
+    }
+
+    @Test
+    @DisplayName("toWwwAuthenticateHeader accepts valid bolt11 with only printable ASCII")
+    void headerAcceptsValidBolt11() {
+        Macaroon macaroon = mintTestMacaroon();
+        L402Challenge challenge = new L402Challenge(macaroon, "lnbc100n1p0valid", 100, "test");
+
+        // Should not throw
+        String header = challenge.toWwwAuthenticateHeader();
+        assertThat(header).contains("invoice=\"lnbc100n1p0valid\"");
+    }
+
+    @Test
     @DisplayName("toJsonBody produces valid JSON using JsonEscaper")
     void toJsonBodyProducesValidJson() {
         Macaroon macaroon = mintTestMacaroon();

@@ -29,6 +29,8 @@ public class LnbitsBackend implements LightningBackend {
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
     private final String baseUrl;
+    private static final int MAX_BODY_LENGTH = 200;
+
     private final Duration requestTimeout;
 
     public LnbitsBackend(LnbitsConfig config, ObjectMapper objectMapper, HttpClient httpClient) {
@@ -59,9 +61,10 @@ public class LnbitsBackend implements LightningBackend {
 
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                String responseBody = truncateBody(response.body());
                 log.log(System.Logger.Level.WARNING,
-                        "LNbits createInvoice returned HTTP {0}", response.statusCode());
-                throw new LnbitsException("LNbits API returned HTTP " + response.statusCode());
+                        "LNbits createInvoice returned HTTP {0}: {1}", response.statusCode(), responseBody);
+                throw new LnbitsException("LNbits API returned HTTP " + response.statusCode() + ": " + responseBody);
             }
             JsonNode json = objectMapper.readTree(response.body());
 
@@ -109,6 +112,13 @@ public class LnbitsBackend implements LightningBackend {
 
     @Override
     public Invoice lookupInvoice(byte[] paymentHash) {
+        if (paymentHash == null) {
+            throw new IllegalArgumentException("paymentHash must not be null");
+        }
+        if (paymentHash.length != 32) {
+            throw new IllegalArgumentException(
+                    "paymentHash must be exactly 32 bytes, got " + paymentHash.length);
+        }
         try {
             String hashHex = HEX.formatHex(paymentHash);
 
@@ -121,10 +131,11 @@ public class LnbitsBackend implements LightningBackend {
 
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                String body = truncateBody(response.body());
                 log.log(System.Logger.Level.WARNING,
-                        "LNbits lookupInvoice returned HTTP {0} for hash={1}",
-                        response.statusCode(), hashHex);
-                throw new LnbitsException("LNbits API returned HTTP " + response.statusCode());
+                        "LNbits lookupInvoice returned HTTP {0} for hash={1}: {2}",
+                        response.statusCode(), hashHex, body);
+                throw new LnbitsException("LNbits API returned HTTP " + response.statusCode() + ": " + body);
             }
             JsonNode json = objectMapper.readTree(response.body());
 
@@ -158,7 +169,22 @@ public class LnbitsBackend implements LightningBackend {
                 preimage = HEX.parseHex(json.get("preimage").asText());
             }
 
-            Instant now = Instant.now();
+            Instant createdAt;
+            JsonNode timeNode = details.get("time");
+            if (timeNode != null && !timeNode.isNull() && timeNode.isNumber()) {
+                createdAt = Instant.ofEpochSecond(timeNode.asLong());
+            } else {
+                createdAt = Instant.now();
+            }
+
+            Instant expiresAt;
+            JsonNode expiryNode = details.get("expiry");
+            if (expiryNode != null && !expiryNode.isNull() && expiryNode.isNumber()) {
+                expiresAt = createdAt.plusSeconds(expiryNode.asLong());
+            } else {
+                expiresAt = createdAt.plus(DEFAULT_INVOICE_EXPIRY);
+            }
+
             return new Invoice(
                     paymentHash,
                     bolt11,
@@ -166,8 +192,8 @@ public class LnbitsBackend implements LightningBackend {
                     memo,
                     status,
                     preimage,
-                    now,
-                    now.plus(DEFAULT_INVOICE_EXPIRY)
+                    createdAt,
+                    expiresAt
             );
         } catch (HttpTimeoutException e) {
             log.log(System.Logger.Level.WARNING,
@@ -209,5 +235,12 @@ public class LnbitsBackend implements LightningBackend {
             log.log(System.Logger.Level.WARNING, "LNbits health check failed", e);
             return false;
         }
+    }
+
+    private static String truncateBody(String body) {
+        if (body == null || body.isEmpty()) {
+            return "";
+        }
+        return body.length() <= MAX_BODY_LENGTH ? body : body.substring(0, MAX_BODY_LENGTH) + "...";
     }
 }

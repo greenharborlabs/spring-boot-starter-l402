@@ -46,14 +46,19 @@ public record L402Challenge(Macaroon macaroon, String bolt11Invoice, long priceS
     }
 
     /**
-     * Validates that a bolt11 string does not contain characters that could enable
-     * HTTP header injection (CRLF) or break the WWW-Authenticate header format (double quotes).
+     * Validates that a bolt11 string is safe for inclusion in an HTTP header value
+     * per RFC 7230 section 3.2.6. Rejects all control characters (0x00-0x1F and 0x7F DEL)
+     * and the double-quote character (which would break the quoted parameter format).
+     * <p>
+     * HTAB (0x09) is also rejected: while RFC 7230 permits HTAB in generic header values,
+     * bolt11 invoices are alphanumeric-only, so HTAB is always invalid in this context.
+     * <p>
      * Throws rather than silently stripping, because a modified bolt11 invoice is unpayable.
      */
     private static String sanitizeBolt11ForHeader(String bolt11) {
         for (int i = 0; i < bolt11.length(); i++) {
             char c = bolt11.charAt(i);
-            if (c == '"' || c == '\r' || c == '\n') {
+            if (c <= 0x1F || c == 0x7F || c == '"') {
                 throw new IllegalArgumentException(
                         "bolt11 invoice contains illegal character at index " + i
                                 + ": 0x" + Integer.toHexString(c));

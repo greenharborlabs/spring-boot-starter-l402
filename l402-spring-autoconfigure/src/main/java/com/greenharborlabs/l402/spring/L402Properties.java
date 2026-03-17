@@ -30,8 +30,6 @@ public class L402Properties {
 
     private String rootKeyStorePath = "~/.l402/keys";
 
-    private String credentialCache = "caffeine";
-
     private int credentialCacheMaxSize = 10000;
 
     private String securityMode = "auto";
@@ -164,14 +162,6 @@ public class L402Properties {
 
     public void setRootKeyStorePath(String rootKeyStorePath) {
         this.rootKeyStorePath = rootKeyStorePath;
-    }
-
-    public String getCredentialCache() {
-        return credentialCache;
-    }
-
-    public void setCredentialCache(String credentialCache) {
-        this.credentialCache = credentialCache;
     }
 
     public int getCredentialCacheMaxSize() {

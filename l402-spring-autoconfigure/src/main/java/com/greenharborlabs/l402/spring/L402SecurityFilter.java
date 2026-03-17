@@ -20,6 +20,8 @@ import java.io.IOException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Objects;
+import java.util.OptionalLong;
+import java.util.stream.LongStream;
 
 /**
  * Servlet filter that enforces L402 payment authentication on endpoints
@@ -128,7 +130,7 @@ public class L402SecurityFilter implements Filter {
                 // Success: add expiry header and pass through
                 log.log(System.Logger.Level.DEBUG, "L402 credential validated successfully, tokenId={0}", credential.tokenId());
                 httpResponse.setHeader("X-L402-Credential-Expires",
-                        Instant.now().plus(config.timeoutSeconds(), ChronoUnit.SECONDS).toString());
+                        resolveCredentialExpiry(credential, config).toString());
 
                 chain.doFilter(request, response);
                 recordPassed(config.pathPattern(), config.priceSats(), result.freshValidation());
@@ -184,6 +186,31 @@ public class L402SecurityFilter implements Filter {
                 L402ResponseWriter.writeLightningUnavailable(httpResponse);
             }
         }
+    }
+
+    /**
+     * Extracts the credential expiry from the earliest {@code {serviceName}_valid_until}
+     * caveat on the macaroon. Falls back to {@code Instant.now() + config.timeoutSeconds()}
+     * when no valid_until caveat is present or parseable.
+     */
+    Instant resolveCredentialExpiry(L402Credential credential, L402EndpointConfig config) {
+        String caveatKey = serviceName + "_valid_until";
+        OptionalLong earliest = credential.macaroon().caveats().stream()
+                .filter(c -> caveatKey.equals(c.key()))
+                .flatMapToLong(c -> {
+                    try {
+                        return LongStream.of(Long.parseLong(c.value()));
+                    } catch (NumberFormatException e) {
+                        log.log(System.Logger.Level.WARNING,
+                                "Ignoring unparseable valid_until caveat value: {0}", c.value());
+                        return LongStream.empty();
+                    }
+                })
+                .min();
+        if (earliest.isPresent()) {
+            return Instant.ofEpochSecond(earliest.getAsLong());
+        }
+        return Instant.now().plus(config.timeoutSeconds(), ChronoUnit.SECONDS);
     }
 
     private void recordChallenge(String endpoint) {

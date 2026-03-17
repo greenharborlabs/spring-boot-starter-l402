@@ -68,6 +68,7 @@ class LndBackendTest {
                 .isInstanceOf(LightningException.class)
                 .hasMessageContaining("Failed to create invoice via LND")
                 .hasMessageContaining("UNAVAILABLE")
+                .hasMessageContaining("LND node unreachable")
                 .hasCauseInstanceOf(StatusRuntimeException.class);
     }
 
@@ -89,6 +90,7 @@ class LndBackendTest {
                 .isInstanceOf(LightningException.class)
                 .hasMessageContaining("Failed to lookup invoice via LND")
                 .hasMessageContaining("NOT_FOUND")
+                .hasMessageContaining("invoice not found")
                 .hasCauseInstanceOf(StatusRuntimeException.class);
     }
 
@@ -147,12 +149,14 @@ class LndBackendTest {
     }
 
     @Test
-    void close_shutsDownChannel() throws Exception {
+    void close_shutsDownAndTerminatesChannel() throws Exception {
         var backend = startBackendWith(new LightningGrpc.LightningImplBase() {});
 
         assertThat(channel.isShutdown()).isFalse();
+        assertThat(channel.isTerminated()).isFalse();
         backend.close();
         assertThat(channel.isShutdown()).isTrue();
+        assertThat(channel.isTerminated()).isTrue();
     }
 
     @Test
@@ -268,6 +272,22 @@ class LndBackendTest {
         assertThatThrownBy(() -> backend.createInvoice(100, "test"))
                 .isInstanceOf(LndTimeoutException.class)
                 .hasMessageContaining("timed out after 15s");
+    }
+
+    @Test
+    void createInvoice_handlesNullGrpcStatusDescription() throws Exception {
+        var backend = startBackendWith(new LightningGrpc.LightningImplBase() {
+            @Override
+            public void addInvoice(Lnrpc.Invoice request, StreamObserver<Lnrpc.AddInvoiceResponse> responseObserver) {
+                responseObserver.onError(Status.INTERNAL.asRuntimeException());
+            }
+        });
+
+        assertThatThrownBy(() -> backend.createInvoice(100, "test"))
+                .isInstanceOf(LndException.class)
+                .hasMessageContaining("INTERNAL")
+                .message()
+                .doesNotContain("null");
     }
 
     @Test

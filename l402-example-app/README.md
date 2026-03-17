@@ -366,7 +366,6 @@ These properties are not set explicitly in the example but take effect via their
 | `l402.default-timeout-seconds` | `3600` | Fallback credential lifetime (1 hour). |
 | `l402.root-key-store` | `file` | Root key persistence. Use `memory` for ephemeral keys (Docker, tests). |
 | `l402.root-key-store-path` | `~/.l402/keys` | File system path for persisted root keys. |
-| `l402.credential-cache` | `caffeine` | Cache implementation for verified credentials. |
 | `l402.credential-cache-max-size` | `10000` | Maximum cached credentials before eviction. |
 | `l402.health-cache.enabled` | `true` | Cache backend health check results. |
 | `l402.health-cache.ttl-seconds` | `5` | TTL for cached health check results. |

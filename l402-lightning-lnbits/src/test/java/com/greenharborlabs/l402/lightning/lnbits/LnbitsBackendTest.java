@@ -9,6 +9,8 @@ import com.greenharborlabs.l402.core.lightning.InvoiceStatus;
 import com.greenharborlabs.l402.core.lightning.LightningBackend;
 import com.greenharborlabs.l402.core.lightning.LightningTimeoutException;
 import java.net.http.HttpClient;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.HexFormat;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
@@ -105,7 +107,9 @@ class LnbitsBackendTest {
                         "payment_hash": "%s",
                         "bolt11": "%s",
                         "amount": 100000,
-                        "memo": "lookup memo"
+                        "memo": "lookup memo",
+                        "time": 1700000000,
+                        "expiry": 3600
                     }
                 }
                 """.formatted(PAYMENT_HASH_HEX, BOLT11);
@@ -146,7 +150,9 @@ class LnbitsBackendTest {
                         "payment_hash": "%s",
                         "bolt11": "%s",
                         "amount": 250000,
-                        "memo": "settled memo"
+                        "memo": "settled memo",
+                        "time": 1700000000,
+                        "expiry": 3600
                     }
                 }
                 """.formatted(preimageHex, PAYMENT_HASH_HEX, BOLT11);
@@ -210,7 +216,7 @@ class LnbitsBackendTest {
                 .setResponseCode(200)
                 .setHeader("Content-Type", "application/json")
                 .setBody("""
-                        {"paid": false, "details": {"payment_hash": "%s", "bolt11": "%s", "amount": 100000, "memo": "m"}}
+                        {"paid": false, "details": {"payment_hash": "%s", "bolt11": "%s", "amount": 100000, "memo": "m", "time": 1700000000, "expiry": 3600}}
                         """.formatted(PAYMENT_HASH_HEX, BOLT11)));
 
         server.enqueue(new MockResponse()
@@ -243,7 +249,8 @@ class LnbitsBackendTest {
 
         assertThatThrownBy(() -> backend.createInvoice(100L, "test memo"))
                 .isInstanceOf(LnbitsException.class)
-                .hasMessageContaining("HTTP 401");
+                .hasMessageContaining("HTTP 401")
+                .hasMessageContaining("Unauthorized");
     }
 
     @Test
@@ -254,7 +261,8 @@ class LnbitsBackendTest {
 
         assertThatThrownBy(() -> backend.createInvoice(100L, "test memo"))
                 .isInstanceOf(LnbitsException.class)
-                .hasMessageContaining("HTTP 500");
+                .hasMessageContaining("HTTP 500")
+                .hasMessageContaining("Internal Server Error");
     }
 
     @Test
@@ -265,7 +273,8 @@ class LnbitsBackendTest {
 
         assertThatThrownBy(() -> backend.lookupInvoice(PAYMENT_HASH))
                 .isInstanceOf(LnbitsException.class)
-                .hasMessageContaining("HTTP 404");
+                .hasMessageContaining("HTTP 404")
+                .hasMessageContaining("Not Found");
     }
 
     @Test
@@ -276,13 +285,53 @@ class LnbitsBackendTest {
 
         assertThatThrownBy(() -> backend.lookupInvoice(PAYMENT_HASH))
                 .isInstanceOf(LnbitsException.class)
-                .hasMessageContaining("HTTP 502");
+                .hasMessageContaining("HTTP 502")
+                .hasMessageContaining("Bad Gateway");
     }
 
     // Verify the backend implements the LightningBackend interface
     @Test
     void implementsLightningBackendInterface() {
         assertThat(backend).isInstanceOf(LightningBackend.class);
+    }
+
+    // --- Input validation tests ---
+
+    @Test
+    void lookupInvoice_throws_whenPaymentHashIsNull() {
+        assertThatThrownBy(() -> backend.lookupInvoice(null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("null");
+
+        // No HTTP request should have been made
+        assertThat(server.getRequestCount()).isZero();
+    }
+
+    @Test
+    void lookupInvoice_throws_whenPaymentHashIsEmpty() {
+        assertThatThrownBy(() -> backend.lookupInvoice(new byte[0]))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("32");
+
+        assertThat(server.getRequestCount()).isZero();
+    }
+
+    @Test
+    void lookupInvoice_throws_whenPaymentHashTooShort() {
+        assertThatThrownBy(() -> backend.lookupInvoice(new byte[31]))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("32");
+
+        assertThat(server.getRequestCount()).isZero();
+    }
+
+    @Test
+    void lookupInvoice_throws_whenPaymentHashTooLong() {
+        assertThatThrownBy(() -> backend.lookupInvoice(new byte[33]))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("32");
+
+        assertThat(server.getRequestCount()).isZero();
     }
 
     // --- Malformed response tests ---
@@ -371,6 +420,71 @@ class LnbitsBackendTest {
                 .hasMessageContaining("Missing 'details.amount'");
     }
 
+    // --- Timestamp parsing tests ---
+
+    @Test
+    void lookupInvoice_parsesTimestampsFromDetails() throws Exception {
+        // Given: LNbits returns a response with known time and expiry values
+        long creationEpoch = 1700000000L;
+        long expirySeconds = 7200L;
+        String responseBody = """
+                {
+                    "paid": false,
+                    "details": {
+                        "payment_hash": "%s",
+                        "bolt11": "%s",
+                        "amount": 100000,
+                        "memo": "timestamp test",
+                        "time": %d,
+                        "expiry": %d
+                    }
+                }
+                """.formatted(PAYMENT_HASH_HEX, BOLT11, creationEpoch, expirySeconds);
+
+        server.enqueue(new MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "application/json")
+                .setBody(responseBody));
+
+        // When
+        Invoice invoice = backend.lookupInvoice(PAYMENT_HASH);
+
+        // Then: timestamps are parsed from the response, not generated with Instant.now()
+        assertThat(invoice.createdAt()).isEqualTo(Instant.ofEpochSecond(creationEpoch));
+        assertThat(invoice.expiresAt()).isEqualTo(Instant.ofEpochSecond(creationEpoch + expirySeconds));
+    }
+
+    @Test
+    void lookupInvoice_fallsBackToNow_whenTimeAndExpiryMissing() throws Exception {
+        // Given: LNbits returns a response without time or expiry fields
+        String responseBody = """
+                {
+                    "paid": false,
+                    "details": {
+                        "payment_hash": "%s",
+                        "bolt11": "%s",
+                        "amount": 100000,
+                        "memo": "no timestamps"
+                    }
+                }
+                """.formatted(PAYMENT_HASH_HEX, BOLT11);
+
+        server.enqueue(new MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "application/json")
+                .setBody(responseBody));
+
+        // When
+        Instant before = Instant.now();
+        Invoice invoice = backend.lookupInvoice(PAYMENT_HASH);
+        Instant after = Instant.now();
+
+        // Then: createdAt falls back to approximately now
+        assertThat(invoice.createdAt()).isBetween(before, after);
+        // Then: expiresAt is createdAt + 1 hour (DEFAULT_INVOICE_EXPIRY)
+        assertThat(invoice.expiresAt()).isEqualTo(invoice.createdAt().plus(Duration.ofHours(1)));
+    }
+
     // --- Timeout tests ---
 
     private LnbitsBackend backendWithShortTimeout() {
@@ -427,7 +541,34 @@ class LnbitsBackendTest {
         assertThatThrownBy(() -> shortTimeoutBackend.createInvoice(100L, "memo"))
                 .isInstanceOf(LnbitsException.class)
                 .isNotInstanceOf(LnbitsTimeoutException.class)
-                .hasMessageContaining("HTTP 500");
+                .hasMessageContaining("HTTP 500")
+                .hasMessageContaining("Internal Server Error");
+    }
+
+    @Test
+    void createInvoice_truncatesLongErrorBody() {
+        String longBody = "X".repeat(250);
+        server.enqueue(new MockResponse()
+                .setResponseCode(500)
+                .setBody(longBody));
+
+        assertThatThrownBy(() -> backend.createInvoice(100L, "memo"))
+                .isInstanceOf(LnbitsException.class)
+                .hasMessageContaining("HTTP 500")
+                .hasMessageEndingWith("...")
+                .message()
+                .doesNotContain(longBody);
+    }
+
+    @Test
+    void createInvoice_handlesEmptyErrorBody() {
+        server.enqueue(new MockResponse()
+                .setResponseCode(502)
+                .setBody(""));
+
+        assertThatThrownBy(() -> backend.createInvoice(100L, "memo"))
+                .isInstanceOf(LnbitsException.class)
+                .hasMessageContaining("HTTP 502");
     }
 
     @Test
