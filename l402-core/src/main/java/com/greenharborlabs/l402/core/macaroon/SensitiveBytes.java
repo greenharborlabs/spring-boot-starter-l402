@@ -2,6 +2,7 @@ package com.greenharborlabs.l402.core.macaroon;
 
 import java.util.Arrays;
 import java.util.Objects;
+import java.util.concurrent.locks.ReentrantLock;
 import javax.security.auth.Destroyable;
 
 /**
@@ -18,6 +19,7 @@ public final class SensitiveBytes implements AutoCloseable, Destroyable {
 
     private final byte[] data;
     private volatile boolean destroyed;
+    private final ReentrantLock lock = new ReentrantLock();
 
     /**
      * Creates a new {@code SensitiveBytes} from the given raw key material.
@@ -42,21 +44,31 @@ public final class SensitiveBytes implements AutoCloseable, Destroyable {
      * @return a fresh copy of the internal byte array
      * @throws IllegalStateException if this instance has been destroyed
      */
-    public synchronized byte[] value() {
-        if (destroyed) {
-            throw new IllegalStateException("Key material has been destroyed");
+    public byte[] value() {
+        lock.lock();
+        try {
+            if (destroyed) {
+                throw new IllegalStateException("Key material has been destroyed");
+            }
+            return Arrays.copyOf(data, data.length);
+        } finally {
+            lock.unlock();
         }
-        return Arrays.copyOf(data, data.length);
     }
 
     /**
      * Zeroizes the internal key material. Idempotent — safe to call multiple times.
      */
     @Override
-    public synchronized void destroy() {
-        if (!destroyed) {
-            KeyMaterial.zeroize(data);
-            destroyed = true;
+    public void destroy() {
+        lock.lock();
+        try {
+            if (!destroyed) {
+                KeyMaterial.zeroize(data);
+                destroyed = true;
+            }
+        } finally {
+            lock.unlock();
         }
     }
 
@@ -78,17 +90,27 @@ public final class SensitiveBytes implements AutoCloseable, Destroyable {
      * Two destroyed instances are never equal.
      */
     @Override
-    public synchronized boolean equals(Object o) {
-        if (this == o) return true;
-        if (!(o instanceof SensitiveBytes other)) return false;
-        if (this.destroyed || other.destroyed) return false;
-        return MacaroonCrypto.constantTimeEquals(this.data, other.data);
+    public boolean equals(Object o) {
+        lock.lock();
+        try {
+            if (this == o) return true;
+            if (!(o instanceof SensitiveBytes other)) return false;
+            if (this.destroyed || other.destroyed) return false;
+            return MacaroonCrypto.constantTimeEquals(this.data, other.data);
+        } finally {
+            lock.unlock();
+        }
     }
 
     @Override
-    public synchronized int hashCode() {
-        if (destroyed) return 0;
-        return Arrays.hashCode(data);
+    public int hashCode() {
+        lock.lock();
+        try {
+            if (destroyed) return 0;
+            return Arrays.hashCode(data);
+        } finally {
+            lock.unlock();
+        }
     }
 
     /**

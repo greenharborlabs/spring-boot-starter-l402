@@ -7,6 +7,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.HexFormat;
+import java.util.concurrent.locks.ReentrantLock;
 import javax.security.auth.Destroyable;
 
 /**
@@ -24,7 +25,7 @@ public final class PaymentPreimage implements AutoCloseable, Destroyable {
     private static final int SHA256_LENGTH = 32;
     private static final HexFormat HEX = HexFormat.of();
 
-    private static final Object TIEBREAKER_LOCK = new Object();
+    private final ReentrantLock lock = new ReentrantLock();
 
     private final byte[] data;
     private volatile boolean destroyed;
@@ -53,11 +54,16 @@ public final class PaymentPreimage implements AutoCloseable, Destroyable {
      * @return a fresh copy of the internal byte array
      * @throws IllegalStateException if this instance has been destroyed
      */
-    public synchronized byte[] value() {
-        if (destroyed) {
-            throw new IllegalStateException("Preimage has been destroyed");
+    public byte[] value() {
+        lock.lock();
+        try {
+            if (destroyed) {
+                throw new IllegalStateException("Preimage has been destroyed");
+            }
+            return Arrays.copyOf(data, data.length);
+        } finally {
+            lock.unlock();
         }
-        return Arrays.copyOf(data, data.length);
     }
 
     /**
@@ -67,19 +73,24 @@ public final class PaymentPreimage implements AutoCloseable, Destroyable {
      * @throws IllegalStateException    if this instance has been destroyed
      * @throws IllegalArgumentException if paymentHash is null or not 32 bytes
      */
-    public synchronized boolean matchesHash(byte[] paymentHash) {
-        if (destroyed) {
-            throw new IllegalStateException("Preimage has been destroyed");
+    public boolean matchesHash(byte[] paymentHash) {
+        lock.lock();
+        try {
+            if (destroyed) {
+                throw new IllegalStateException("Preimage has been destroyed");
+            }
+            if (paymentHash == null) {
+                throw new IllegalArgumentException("Payment hash must not be null");
+            }
+            if (paymentHash.length != SHA256_LENGTH) {
+                throw new IllegalArgumentException(
+                        "Payment hash must be exactly " + SHA256_LENGTH + " bytes, got " + paymentHash.length);
+            }
+            byte[] computed = sha256(data);
+            return MacaroonCrypto.constantTimeEquals(computed, paymentHash);
+        } finally {
+            lock.unlock();
         }
-        if (paymentHash == null) {
-            throw new IllegalArgumentException("Payment hash must not be null");
-        }
-        if (paymentHash.length != SHA256_LENGTH) {
-            throw new IllegalArgumentException(
-                    "Payment hash must be exactly " + SHA256_LENGTH + " bytes, got " + paymentHash.length);
-        }
-        byte[] computed = sha256(data);
-        return MacaroonCrypto.constantTimeEquals(computed, paymentHash);
     }
 
     /**
@@ -87,11 +98,16 @@ public final class PaymentPreimage implements AutoCloseable, Destroyable {
      *
      * @throws IllegalStateException if this instance has been destroyed
      */
-    public synchronized String toHex() {
-        if (destroyed) {
-            throw new IllegalStateException("Preimage has been destroyed");
+    public String toHex() {
+        lock.lock();
+        try {
+            if (destroyed) {
+                throw new IllegalStateException("Preimage has been destroyed");
+            }
+            return HEX.formatHex(data);
+        } finally {
+            lock.unlock();
         }
-        return HEX.formatHex(data);
     }
 
     /**
@@ -118,10 +134,15 @@ public final class PaymentPreimage implements AutoCloseable, Destroyable {
      * Idempotent -- safe to call multiple times.
      */
     @Override
-    public synchronized void destroy() {
-        if (!destroyed) {
-            KeyMaterial.zeroize(data);
-            destroyed = true;
+    public void destroy() {
+        lock.lock();
+        try {
+            if (!destroyed) {
+                KeyMaterial.zeroize(data);
+                destroyed = true;
+            }
+        } finally {
+            lock.unlock();
         }
     }
 
@@ -140,49 +161,33 @@ public final class PaymentPreimage implements AutoCloseable, Destroyable {
 
     /**
      * Constant-time equality comparison using {@link MacaroonCrypto#constantTimeEquals}.
-     * Two destroyed instances are never equal.
+     * Two destroyed instances are never equal. Only locks {@code this}; reading
+     * {@code other.destroyed} (volatile) and {@code other.data} without locking
+     * {@code other} is safe — at worst, a concurrent destruction causes comparison
+     * against zeroed bytes, returning {@code false}.
      */
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (!(o instanceof PaymentPreimage other)) return false;
 
-        int thisHash = System.identityHashCode(this);
-        int otherHash = System.identityHashCode(other);
-
-        if (thisHash < otherHash) {
-            synchronized (this) {
-                synchronized (other) {
-                    return equalsUnderLock(other);
-                }
-            }
-        } else if (thisHash > otherHash) {
-            synchronized (other) {
-                synchronized (this) {
-                    return equalsUnderLock(other);
-                }
-            }
-        } else {
-            synchronized (TIEBREAKER_LOCK) {
-                synchronized (this) {
-                    synchronized (other) {
-                        return equalsUnderLock(other);
-                    }
-                }
-            }
+        lock.lock();
+        try {
+            if (this.destroyed || other.destroyed) return false;
+            return MacaroonCrypto.constantTimeEquals(this.data, other.data);
+        } finally {
+            lock.unlock();
         }
-    }
-
-    private boolean equalsUnderLock(PaymentPreimage other) {
-        if (this.destroyed || other.destroyed) return false;
-        return MacaroonCrypto.constantTimeEquals(this.data, other.data);
     }
 
     @Override
     public int hashCode() {
-        synchronized (this) {
+        lock.lock();
+        try {
             if (destroyed) return 0;
             return Arrays.hashCode(data);
+        } finally {
+            lock.unlock();
         }
     }
 
