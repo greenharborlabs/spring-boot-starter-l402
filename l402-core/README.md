@@ -245,7 +245,7 @@ public interface CaveatVerifier {
 }
 ```
 
-During macaroon verification, `MacaroonVerifier` matches each caveat to a registered `CaveatVerifier` by key. If no verifier is found for a caveat, verification fails. This ensures that unknown caveats are never silently accepted.
+During macaroon verification, `MacaroonVerifier` matches each caveat to a registered `CaveatVerifier` by key. If no verifier is found for a caveat, that caveat is **skipped** — verification continues without evaluating it. This follows the L402 cross-service delegation model, where a macaroon may carry caveats intended for other services that this service does not understand. Note that this differs from the original macaroons paper, which recommends failing closed on unknown caveats. If your application requires strict unknown-caveat rejection, register a custom `CaveatVerifier` that rejects all unrecognized keys.
 
 ### Built-in Caveat Verifiers
 
@@ -503,7 +503,7 @@ All byte array fields in immutable types are defensively copied on construction 
 
 - If the Lightning backend is unreachable, `isHealthy()` returns `false` and the filter returns HTTP 503
 - Protected content is **never** served with HTTP 200 when the backend cannot be reached
-- Unknown caveats cause verification failure (no caveat is silently accepted)
+- Unknown caveats are skipped during verification to support cross-service delegation (fail-closed applies to Lightning backend connectivity and signature verification, not to unknown caveats)
 - Revoked root keys are detected both on fresh validation and on cache hits
 - Expired credentials in the cache are re-verified against the current time and evicted if expired
 
@@ -568,7 +568,7 @@ Tests use **JUnit 5** with **AssertJ** for fluent assertions. The test suite is 
 | Tampered caveat value fails | Caveat integrity |
 | Wrong root key fails | Key binding |
 | Caveat verifier rejection propagates | Verifier integration |
-| Missing caveat verifier fails | Unknown caveat rejection |
+| Unknown caveats are skipped without error | Unknown caveat pass-through |
 
 #### V2 Binary Serialization (`MacaroonSerializerTest`)
 

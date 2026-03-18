@@ -84,6 +84,7 @@ subprojects {
     val coverageMinimum = when (project.name) {
         "l402-core" -> "0.80"
         "l402-example-app" -> "0.40"
+        "l402-integration-tests" -> "0.0"
         else -> "0.60"
     }
     tasks.withType<JacocoCoverageVerification> {
@@ -114,12 +115,12 @@ subprojects {
     extra["mockWebServerVersion"] = mockWebServerVersion
 
     // CycloneDX SBOM generation (skip example app and starter aggregator)
-    if (project.name != "l402-example-app" && project.name != "l402-spring-boot-starter") {
+    if (project.name != "l402-example-app" && project.name != "l402-spring-boot-starter" && project.name != "l402-integration-tests") {
         apply(plugin = "org.cyclonedx.bom")
     }
 
     // Publishing configuration (skip example app)
-    if (project.name != "l402-example-app") {
+    if (project.name != "l402-example-app" && project.name != "l402-integration-tests") {
         apply(plugin = "maven-publish")
         apply(plugin = "signing")
 

@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-03-17
 
 ### Added
 
@@ -46,6 +46,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI/CD: GitHub Actions workflows for CI, release (Sonatype staging), and snapshot publishing
 - CI/CD: Dependabot configuration for automated dependency updates
 - CI/CD: CodeQL analysis workflow for security scanning
+- CI/CD: Gradle wrapper validation in CI
+- CI/CD: Integration test CI stage
+- CI/CD: Javadoc publishing to GitHub Pages
+- Testcontainers-based integration test module
+- Go interop test automation for cross-platform macaroon compatibility
+- `.editorconfig` for consistent formatting across editors
+- Smoke test script for manual Lightning validation
 - Configuration properties under `l402.*` prefix with sensible defaults
 
 ### Security
@@ -55,10 +62,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Root keys wrapped in `SensitiveBytes` with explicit zeroization
 - Macaroon values never logged in full; only token IDs appear in logs
 - `FileBasedRootKeyStore` returns defensive copies of root keys
+- Sig byte array zeroization in `MacaroonMinter` prevents key material leakage
+- LND macaroon file size guard rejects unexpectedly large credential files
 
 ### Fixed
 
+- Synchronized `InMemoryRootKeyStore` to prevent race conditions under concurrent access
+- Health gauge uses cached value instead of blocking `isHealthy()` call
+- `TokenBucketRateLimiter` bucket count race condition resolved
+- `LndBackend.close()` properly awaits channel termination instead of fire-and-forget
+- LNbits response timestamps parsed from actual API response instead of fabricated
+- Standardized logging to `System.Logger` across all modules, replacing mixed SLF4J usage
+- Shared L402 header parsing contract via `L402HeaderComponents` eliminates divergent regex implementations
+- Bounded metrics cardinality prevents unbounded tag explosion in Micrometer metrics
 - Unknown caveat handling: skip unknown caveats per specification instead of rejecting
+- Unknown caveat handling documentation corrected to match implementation behavior
 - `WWW-Authenticate` header format corrected to `L402 version="0", token=`
 - `MacaroonSerializer` validation for field types and lengths
 

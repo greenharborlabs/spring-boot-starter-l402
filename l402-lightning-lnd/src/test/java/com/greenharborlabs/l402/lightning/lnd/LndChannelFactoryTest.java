@@ -245,6 +245,37 @@ class LndChannelFactoryTest {
                 .hasCauseInstanceOf(Exception.class);
     }
 
+    @Test
+    void oversizedMacaroonFileThrowsLndException(@TempDir Path tempDir) throws IOException {
+        Path macaroonFile = tempDir.resolve("admin.macaroon");
+        Files.write(macaroonFile, new byte[4097]);
+
+        var config = new LndConfig(
+                "localhost", 10009,
+                null, macaroonFile.toString(),
+                true, 60, 20, 5, 4_194_304, 5);
+
+        assertThatThrownBy(() -> LndChannelFactory.create(config))
+                .isInstanceOf(LndException.class)
+                .hasMessageContaining("LND macaroon file exceeds maximum size of 4096 bytes: 4097");
+    }
+
+    @Test
+    void macaroonFileAtExactMaxSizeIsAccepted(@TempDir Path tempDir) throws IOException {
+        Path macaroonFile = tempDir.resolve("admin.macaroon");
+        Files.write(macaroonFile, new byte[4096]);
+
+        var config = new LndConfig(
+                "localhost", 10009,
+                null, macaroonFile.toString(),
+                true, 60, 20, 5, 4_194_304, 5);
+
+        channel = LndChannelFactory.create(config);
+
+        assertThat(channel).isNotNull();
+        assertThat(channel.isShutdown()).isFalse();
+    }
+
     // --- Integration tests with a real gRPC server on localhost ---
 
     @Test

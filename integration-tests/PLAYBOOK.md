@@ -10,6 +10,8 @@ All commands assume you are in the `integration-tests/` directory unless otherwi
 
 ## Table of Contents
 
+- [Quick Smoke Test](#quick-smoke-test) -- 5-command zero-to-verified flow
+
 1. [Happy Path (LND)](#1-happy-path-lnd)
 2. [Happy Path (LNbits)](#2-happy-path-lnbits)
 3. [Expiration Test](#3-expiration-test)
@@ -19,6 +21,58 @@ All commands assume you are in the `integration-tests/` directory unless otherwi
 7. [Spring Security Integration Test](#7-spring-security-integration-test)
 8. [LSAT Backward Compatibility](#8-lsat-backward-compatibility)
 9. [Go Interop Test](#9-go-interop-test)
+
+---
+
+## Quick Smoke Test
+
+A 5-command guide to go from zero to a verified **402 -> pay -> 200** flow using the LNbits FakeWallet backend. No real Lightning node required.
+
+### Prerequisites
+
+Docker Engine 24+, Docker Compose v2, `curl`, and `jq` must be installed.
+
+### Steps
+
+**1. Start the LNbits stack:**
+
+```bash
+docker compose -f docker-compose-lnbits.yml up -d
+```
+
+**2. Bootstrap a wallet and write the API key to `.env`:**
+
+```bash
+bash scripts/setup-lnbits.sh
+```
+
+This waits for LNbits to become healthy, creates a test wallet, and stores `LNBITS_API_KEY` in `.env`. After it finishes, restart the example app so it picks up the key:
+
+```bash
+docker compose -f docker-compose-lnbits.yml up -d l402-example-app
+```
+
+**3. Run the automated smoke test:**
+
+```bash
+bash scripts/run-smoke-test.sh
+```
+
+The script waits for the app to become healthy, then exercises the full L402 flow: unauthenticated request (expect 402), invoice payment via LNbits, and authenticated request with the L402 credential (expect 200).
+
+**4. Check the output.** Each step prints PASS (green) or FAIL (red). The script exits `0` on success, non-zero on failure.
+
+**5. Tear down:**
+
+```bash
+docker compose -f docker-compose-lnbits.yml down -v
+```
+
+### Notes
+
+- The smoke test script does **not** start or stop Docker containers. You manage the stack lifecycle yourself (steps 1 and 5).
+- The script sources `.env` automatically if present, picking up `LNBITS_API_KEY`, `LNBITS_PORT`, and `APP_PORT`.
+- For the full manual walkthrough of each scenario, see the numbered sections below.
 
 ---
 

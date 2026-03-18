@@ -12,7 +12,7 @@ import java.util.concurrent.locks.ReentrantLock;
 
 public class InMemoryCredentialStore implements CredentialStore, AutoCloseable {
 
-    private static final System.Logger LOG = System.getLogger(InMemoryCredentialStore.class.getName());
+    private static final System.Logger log = System.getLogger(InMemoryCredentialStore.class.getName());
     private static final int DEFAULT_MAX_SIZE = 10_000;
     private static final long DEFAULT_CLEANUP_INTERVAL_SECONDS = 60;
 
@@ -166,7 +166,7 @@ public class InMemoryCredentialStore implements CredentialStore, AutoCloseable {
                 storeLock.unlock();
             }
         } catch (Exception e) {
-            LOG.log(System.Logger.Level.WARNING, "Scheduled credential cleanup failed", e);
+            log.log(System.Logger.Level.WARNING, "Scheduled credential cleanup failed", e);
         }
     }
 
@@ -201,7 +201,7 @@ public class InMemoryCredentialStore implements CredentialStore, AutoCloseable {
             try {
                 listener.onEviction(tokenId, reason);
             } catch (Exception e) {
-                LOG.log(System.Logger.Level.WARNING, "Eviction listener threw exception for tokenId: " + tokenId, e);
+                log.log(System.Logger.Level.WARNING, "Eviction listener threw exception for tokenId: " + tokenId, e);
             }
         }
     }

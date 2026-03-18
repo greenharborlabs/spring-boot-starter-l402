@@ -120,10 +120,18 @@ public final class LndChannelFactory {
         return channel;
     }
 
+    private static final long MAX_MACAROON_FILE_SIZE = 4096;
+
     private static String readMacaroonHex(String macaroonPath) {
         Path path = Path.of(macaroonPath);
 
         try {
+            long fileSize = Files.size(path);
+            if (fileSize > MAX_MACAROON_FILE_SIZE) {
+                throw new LndException(
+                        "LND macaroon file exceeds maximum size of %d bytes: %d"
+                                .formatted(MAX_MACAROON_FILE_SIZE, fileSize));
+            }
             byte[] macaroonBytes = Files.readAllBytes(path);
             return HexFormat.of().formatHex(macaroonBytes);
         } catch (IOException e) {

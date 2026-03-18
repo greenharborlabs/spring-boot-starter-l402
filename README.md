@@ -170,7 +170,7 @@ All properties are under the `l402.*` prefix.
 |----------|------|---------|-------------|
 | `l402.enabled` | `boolean` | `false` | Master switch. L402 filter is only active when `true`. |
 | `l402.backend` | `string` | -- | Lightning backend to use: `lnbits` or `lnd`. |
-| `l402.service-name` | `string` | `default` | Service name embedded in macaroon caveats. Falls back to `"default"` if unset. |
+| `l402.service-name` | `string` | -- | Service name embedded in macaroon caveats. Falls back to `"default"` at runtime if unset. |
 | `l402.default-price-sats` | `long` | `10` | Fallback price when not specified in `@L402Protected`. |
 | `l402.default-timeout-seconds` | `long` | `3600` | Credential TTL in seconds. |
 | `l402.root-key-store` | `string` | `file` | Root key storage: `file` or `memory`. |
@@ -178,6 +178,20 @@ All properties are under the `l402.*` prefix.
 | `l402.credential-cache-max-size` | `int` | `10000` | Maximum cached credentials. |
 | `l402.security-mode` | `string` | `auto` | Security integration mode: `auto`, `servlet`, or `spring-security`. See [Spring Security Integration](#spring-security-integration). |
 | `l402.test-mode` | `boolean` | `false` | Enable test mode (dummy invoices, auto-settle). |
+| `l402.trust-forwarded-headers` | `boolean` | `false` | Trust `X-Forwarded-For` for client IP resolution. Enable only behind a trusted reverse proxy. |
+
+### Rate Limiting
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `l402.rate-limit.requests-per-second` | `double` | `10.0` | Token refill rate per second for the challenge rate limiter. |
+| `l402.rate-limit.burst-size` | `int` | `20` | Maximum burst size (token bucket capacity) for the challenge rate limiter. |
+
+### Lightning Backend Timeout
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `l402.lightning.timeout-seconds` | `int` | `5` | Global timeout in seconds for Lightning backend RPC/HTTP calls. Backend-specific properties override this when set. |
 
 ### Health Check Caching
 
@@ -192,6 +206,8 @@ All properties are under the `l402.*` prefix.
 |----------|------|---------|-------------|
 | `l402.lnbits.url` | `string` | -- | LNbits instance URL. |
 | `l402.lnbits.api-key` | `string` | -- | LNbits admin API key. |
+| `l402.lnbits.request-timeout-seconds` | `int` | -- | HTTP request timeout. Overrides `l402.lightning.timeout-seconds` when set. |
+| `l402.lnbits.connect-timeout-seconds` | `int` | `10` | TCP connect timeout in seconds. |
 
 ### LND Backend
 
@@ -201,6 +217,27 @@ All properties are under the `l402.*` prefix.
 | `l402.lnd.port` | `int` | `10009` | LND gRPC port. |
 | `l402.lnd.tls-cert-path` | `string` | -- | Path to LND TLS certificate. Omit for plaintext (dev only). |
 | `l402.lnd.macaroon-path` | `string` | -- | Path to LND admin macaroon file. |
+| `l402.lnd.allow-plaintext` | `boolean` | `false` | Allow plaintext gRPC (no TLS). Dev only. |
+| `l402.lnd.rpc-deadline-seconds` | `int` | -- | Per-call gRPC deadline. Overrides `l402.lightning.timeout-seconds` when set. |
+| `l402.lnd.keep-alive-time-seconds` | `int` | `60` | Interval between gRPC keepalive pings. |
+| `l402.lnd.keep-alive-timeout-seconds` | `int` | `20` | Timeout for keepalive ping acknowledgement. |
+| `l402.lnd.idle-timeout-minutes` | `int` | `5` | Idle gRPC connection timeout. |
+| `l402.lnd.max-inbound-message-size` | `int` | `4194304` | Maximum inbound gRPC message size in bytes. |
+
+### Parsing Limits
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `l402.parsing.max-tokens` | `int` | `5` | Maximum L402 tokens allowed in a single Authorization header. |
+| `l402.parsing.max-caveats` | `int` | `20` | Maximum caveats allowed per macaroon during parsing. |
+| `l402.parsing.max-macaroon-bytes` | `int` | `4096` | Maximum size in bytes of a single decoded macaroon. |
+
+### Metrics
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `l402.metrics.max-endpoint-cardinality` | `int` | `100` | Maximum distinct endpoint tag values before overflow bucketing. |
+| `l402.metrics.overflow-tag-value` | `string` | `_other` | Tag value used when the endpoint cardinality cap is exceeded. |
 
 ---
 
@@ -484,6 +521,8 @@ In test mode:
 - Invoices are dummy values with valid structure
 - All invoices are treated as immediately settled
 - The full L402 flow (challenge, credential validation) still executes
+
+The example app activates test mode via the `dev` profile (`application-dev.yml` sets `l402.test-mode: true`), not directly in `application.yml`.
 
 **Safety guard:** Test mode refuses to start if any active Spring profile is `production` or `prod`, throwing an `IllegalStateException` at application startup.
 
