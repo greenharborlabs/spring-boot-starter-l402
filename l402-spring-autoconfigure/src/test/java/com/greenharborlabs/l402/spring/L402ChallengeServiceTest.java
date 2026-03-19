@@ -573,6 +573,33 @@ class L402ChallengeServiceTest {
     }
 
     // -----------------------------------------------------------------------
+    // Constructor validation
+    // -----------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("constructor validation")
+    class ConstructorValidation {
+
+        @Test
+        @DisplayName("throws NullPointerException when properties is null")
+        void throwsWhenPropertiesNull() {
+            assertThatThrownBy(() -> new L402ChallengeService(
+                    createTrackingRootKeyStore(), lightningBackend, null, applicationContext, null, null))
+                    .isInstanceOf(NullPointerException.class)
+                    .hasMessage("properties must not be null");
+        }
+
+        @Test
+        @DisplayName("throws NullPointerException when applicationContext is null")
+        void throwsWhenApplicationContextNull() {
+            assertThatThrownBy(() -> new L402ChallengeService(
+                    createTrackingRootKeyStore(), lightningBackend, properties, null, null, null))
+                    .isInstanceOf(NullPointerException.class)
+                    .hasMessage("applicationContext must not be null");
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
 

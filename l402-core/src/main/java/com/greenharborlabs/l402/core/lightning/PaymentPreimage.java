@@ -185,7 +185,8 @@ public final class PaymentPreimage implements AutoCloseable, Destroyable {
         lock.lock();
         try {
             if (destroyed) return 0;
-            return Arrays.hashCode(data);
+            // Constant hashCode prevents preimage leakage through hash codes
+            return 0x5052_4549; // "PREI" — PaymentPreimage marker
         } finally {
             lock.unlock();
         }

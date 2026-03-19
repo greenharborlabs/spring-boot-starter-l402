@@ -107,7 +107,8 @@ public final class SensitiveBytes implements AutoCloseable, Destroyable {
         lock.lock();
         try {
             if (destroyed) return 0;
-            return Arrays.hashCode(data);
+            // Constant hashCode prevents key material leakage through hash codes
+            return 0x534B_4559; // "SKEY" — SensitiveBytes key marker
         } finally {
             lock.unlock();
         }

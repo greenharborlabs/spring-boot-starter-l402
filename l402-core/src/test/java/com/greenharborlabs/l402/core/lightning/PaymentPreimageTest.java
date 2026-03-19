@@ -387,6 +387,15 @@ class PaymentPreimageTest {
     }
 
     @Test
+    void hashCodeReturnsSameConstantForDifferentContent() {
+        var a = new PaymentPreimage(VALID_32_BYTES.clone());
+        byte[] different = new byte[32];
+        Arrays.fill(different, (byte) 0xAB);
+        var b = new PaymentPreimage(different);
+        assertThat(a.hashCode()).isEqualTo(b.hashCode());
+    }
+
+    @Test
     void hashCodeReturnsConstantAfterDestroy() {
         var preimage = new PaymentPreimage(VALID_32_BYTES.clone());
         preimage.destroy();

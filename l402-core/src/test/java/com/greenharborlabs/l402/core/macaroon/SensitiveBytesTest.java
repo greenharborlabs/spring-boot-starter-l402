@@ -194,6 +194,14 @@ class SensitiveBytesTest {
         }
 
         @Test
+        @DisplayName("hashCode returns same constant regardless of content (no data leakage)")
+        void hashCode_sameConstantForDifferentContent() {
+            var a = new SensitiveBytes(new byte[]{1, 2, 3});
+            var b = new SensitiveBytes(new byte[]{99, 98, 97, 96, 95});
+            assertThat(a.hashCode()).isEqualTo(b.hashCode());
+        }
+
+        @Test
         @DisplayName("hashCode returns constant 0 after destroy")
         void hashCode_afterDestroy_returnsConstant() {
             var sb = new SensitiveBytes(new byte[]{1, 2, 3});
