@@ -77,6 +77,9 @@ public final class L402PathUtils {
         if (path == null || path.isEmpty()) {
             return path;
         }
+        if (path.indexOf('%') < 0) {
+            return path;
+        }
         var out = new ByteArrayOutputStream(path.length());
         int i = 0;
         while (i < path.length()) {

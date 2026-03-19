@@ -127,4 +127,61 @@ class LnbitsConfigTest {
         assertThat(config.toString()).contains("***REDACTED***");
         assertThat(config.toString()).doesNotContain(API_KEY);
     }
+
+    // --- URL scheme validation tests (SSRF prevention) ---
+
+    @Test
+    void shouldRejectFileSchemeUrl() {
+        assertThatThrownBy(() -> new LnbitsConfig("file:///etc/passwd", API_KEY))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("scheme")
+                .hasMessageContaining("file");
+    }
+
+    @Test
+    void shouldRejectFtpSchemeUrl() {
+        assertThatThrownBy(() -> new LnbitsConfig("ftp://evil.com", API_KEY))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("scheme")
+                .hasMessageContaining("ftp");
+    }
+
+    @Test
+    void shouldRejectGopherSchemeUrl() {
+        assertThatThrownBy(() -> new LnbitsConfig("gopher://evil.com", API_KEY))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("scheme")
+                .hasMessageContaining("gopher");
+    }
+
+    @Test
+    void shouldRejectUrlWithNoScheme() {
+        assertThatThrownBy(() -> new LnbitsConfig("not-a-url", API_KEY))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("scheme");
+    }
+
+    @Test
+    void shouldRejectMalformedUri() {
+        assertThatThrownBy(() -> new LnbitsConfig("://missing-scheme", API_KEY))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void shouldAcceptHttpScheme() {
+        var config = new LnbitsConfig("http://localhost:5000", API_KEY);
+        assertThat(config.baseUrl()).isEqualTo("http://localhost:5000");
+    }
+
+    @Test
+    void shouldAcceptHttpsScheme() {
+        var config = new LnbitsConfig("https://lnbits.example.com", API_KEY);
+        assertThat(config.baseUrl()).isEqualTo("https://lnbits.example.com");
+    }
+
+    @Test
+    void shouldAcceptUppercaseHttpScheme() {
+        var config = new LnbitsConfig("HTTP://EXAMPLE.COM", API_KEY);
+        assertThat(config.baseUrl()).isEqualTo("HTTP://EXAMPLE.COM");
+    }
 }

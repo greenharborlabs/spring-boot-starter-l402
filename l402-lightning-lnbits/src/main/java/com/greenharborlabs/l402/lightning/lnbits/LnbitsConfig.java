@@ -1,5 +1,8 @@
 package com.greenharborlabs.l402.lightning.lnbits;
 
+import java.net.URI;
+import java.net.URISyntaxException;
+
 /**
  * Configuration for the LNbits Lightning backend.
  *
@@ -17,6 +20,22 @@ public record LnbitsConfig(String baseUrl, String apiKey, int requestTimeoutSeco
     public LnbitsConfig {
         if (baseUrl == null || baseUrl.isBlank()) {
             throw new IllegalArgumentException("baseUrl must not be null or blank");
+        }
+        URI parsed;
+        try {
+            parsed = new URI(baseUrl);
+        } catch (URISyntaxException e) {
+            throw new IllegalArgumentException(
+                    "baseUrl is not a valid URI: " + baseUrl, e);
+        }
+        String scheme = parsed.getScheme();
+        if (scheme == null) {
+            throw new IllegalArgumentException(
+                    "baseUrl must have an http or https scheme, but has no scheme: " + baseUrl);
+        }
+        if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
+            throw new IllegalArgumentException(
+                    "baseUrl scheme must be http or https, got: " + scheme);
         }
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalArgumentException("apiKey must not be null or blank");
