@@ -31,6 +31,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -212,6 +213,31 @@ class L402ChallengeServiceTest {
 
             assertThat(result.priceSats()).isEqualTo(42L);
             verify(lightningBackend).createInvoice(eq(42L), anyString());
+        }
+
+        @Test
+        @DisplayName("caches pricing strategy bean — getBean called only once for repeated lookups")
+        void cachesPricingStrategyBean() throws Exception {
+            when(lightningBackend.isHealthy()).thenReturn(true);
+            when(lightningBackend.createInvoice(anyLong(), anyString())).thenReturn(createStubInvoice(null));
+
+            L402PricingStrategy strategy = (req, defaultPrice) -> 42L;
+            when(applicationContext.getBean("cachedStrategy", L402PricingStrategy.class)).thenReturn(strategy);
+
+            L402EndpointConfig configWithStrategy = new L402EndpointConfig(
+                    "GET", "/api/protected", PRICE_SATS, TIMEOUT_SECONDS, DESCRIPTION, "cachedStrategy", "");
+
+            L402ChallengeService service = createService(createTrackingRootKeyStore());
+
+            // First call — populates cache
+            L402ChallengeResult result1 = service.createChallenge(request, configWithStrategy);
+            assertThat(result1.priceSats()).isEqualTo(42L);
+
+            // Second call — should use cache, not getBean again
+            L402ChallengeResult result2 = service.createChallenge(request, configWithStrategy);
+            assertThat(result2.priceSats()).isEqualTo(42L);
+
+            verify(applicationContext, times(1)).getBean("cachedStrategy", L402PricingStrategy.class);
         }
 
         @Test

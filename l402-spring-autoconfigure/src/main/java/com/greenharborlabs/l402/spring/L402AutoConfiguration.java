@@ -210,7 +210,7 @@ public class L402AutoConfiguration {
                                                       L402Properties properties,
                                                       ApplicationContext applicationContext,
                                                       L402EarningsTracker l402EarningsTracker,
-                                                      @Autowired(required = false) L402RateLimiter l402RateLimiter) {
+                                                      L402RateLimiter l402RateLimiter) {
         return new L402ChallengeService(rootKeyStore, lightningBackend,
                 properties, applicationContext, l402EarningsTracker, l402RateLimiter);
     }
@@ -223,7 +223,7 @@ public class L402AutoConfiguration {
                                                   L402Properties properties,
                                                   @Autowired(required = false) L402Metrics l402Metrics,
                                                   L402EarningsTracker l402EarningsTracker,
-                                                  @Autowired(required = false) L402RateLimiter l402RateLimiter) {
+                                                  L402RateLimiter l402RateLimiter) {
         return new L402SecurityFilter(registry, l402Validator, l402ChallengeService,
                 properties.getServiceName(), l402Metrics, l402EarningsTracker, l402RateLimiter);
     }

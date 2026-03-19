@@ -224,14 +224,6 @@ All properties are under the `l402.*` prefix.
 | `l402.lnd.idle-timeout-minutes` | `int` | `5` | Idle gRPC connection timeout. |
 | `l402.lnd.max-inbound-message-size` | `int` | `4194304` | Maximum inbound gRPC message size in bytes. |
 
-### Parsing Limits
-
-| Property | Type | Default | Description |
-|----------|------|---------|-------------|
-| `l402.parsing.max-tokens` | `int` | `5` | Maximum L402 tokens allowed in a single Authorization header. |
-| `l402.parsing.max-caveats` | `int` | `20` | Maximum caveats allowed per macaroon during parsing. |
-| `l402.parsing.max-macaroon-bytes` | `int` | `4096` | Maximum size in bytes of a single decoded macaroon. |
-
 ### Metrics
 
 | Property | Type | Default | Description |

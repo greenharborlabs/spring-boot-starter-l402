@@ -2,6 +2,7 @@ package com.greenharborlabs.l402.spring;
 
 import java.util.ArrayList;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -47,7 +48,7 @@ public class TokenBucketRateLimiter implements L402RateLimiter {
             cleanupStaleEntries();
         }
 
-        boolean[] allowed = {false};
+        var allowed = new AtomicBoolean();
         buckets.compute(key, (_, existing) -> {
             long now = System.nanoTime();
             if (existing == null) {
@@ -58,7 +59,7 @@ public class TokenBucketRateLimiter implements L402RateLimiter {
                     return null; // don't create bucket — at capacity
                 }
                 // New bucket: start full, consume one token immediately
-                allowed[0] = true;
+                allowed.set(true);
                 return new Bucket(maxTokens - 1.0, now);
             }
 
@@ -67,16 +68,16 @@ public class TokenBucketRateLimiter implements L402RateLimiter {
             double newTokens = Math.min(maxTokens, existing.tokens + elapsedSeconds * refillRatePerSecond);
 
             if (newTokens >= 1.0) {
-                allowed[0] = true;
+                allowed.set(true);
                 return new Bucket(newTokens - 1.0, now);
             } else {
                 // Not enough tokens; update timestamp for partial refill tracking
-                allowed[0] = false;
+                allowed.set(false);
                 return new Bucket(newTokens, now);
             }
         });
 
-        return allowed[0];
+        return allowed.get();
     }
 
     private void cleanupStaleEntries() {

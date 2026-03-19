@@ -31,6 +31,9 @@ public class LnbitsBackend implements LightningBackend {
     private final String baseUrl;
     private static final int MAX_BODY_LENGTH = 200;
 
+    // LNbits returns invoice amounts in millisatoshis; divide by this factor to convert to satoshis.
+    private static final long MSAT_PER_SAT = 1000;
+
     private final Duration requestTimeout;
 
     public LnbitsBackend(LnbitsConfig config, ObjectMapper objectMapper, HttpClient httpClient) {
@@ -160,7 +163,7 @@ public class LnbitsBackend implements LightningBackend {
             }
 
             String bolt11 = bolt11Node.asText();
-            long amount = amountNode.asLong() / 1000;
+            long amount = amountNode.asLong() / MSAT_PER_SAT;
             String memo = details.has("memo") ? details.get("memo").asText() : null;
 
             InvoiceStatus status = paid ? InvoiceStatus.SETTLED : InvoiceStatus.PENDING;

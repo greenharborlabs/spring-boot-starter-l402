@@ -21,6 +21,7 @@ import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Service that encapsulates L402 challenge creation logic: health check,
@@ -45,6 +46,7 @@ public class L402ChallengeService {
 
     private final L402EarningsTracker earningsTracker;
     private final L402RateLimiter rateLimiter;
+    private final ConcurrentHashMap<String, L402PricingStrategy> pricingStrategyCache = new ConcurrentHashMap<>();
     private volatile boolean reverseProxyWarningLogged;
 
     public L402ChallengeService(RootKeyStore rootKeyStore,
@@ -205,15 +207,20 @@ public class L402ChallengeService {
         if (strategyName == null || strategyName.isBlank() || applicationContext == null) {
             return config.priceSats();
         }
-        try {
-            L402PricingStrategy strategy = applicationContext.getBean(strategyName, L402PricingStrategy.class);
-            return strategy.calculatePrice(request, config.priceSats());
-        } catch (Exception e) {
-            log.log(System.Logger.Level.WARNING,
-                    "Pricing strategy bean ''{0}'' not found or failed; falling back to static price {1} sats",
-                    strategyName, config.priceSats());
-            return config.priceSats();
+        // Check cache first; failed lookups are NOT cached so they retry on each request.
+        L402PricingStrategy strategy = pricingStrategyCache.get(strategyName);
+        if (strategy == null) {
+            try {
+                strategy = applicationContext.getBean(strategyName, L402PricingStrategy.class);
+                pricingStrategyCache.put(strategyName, strategy);
+            } catch (Exception e) {
+                log.log(System.Logger.Level.WARNING,
+                        "Pricing strategy bean ''{0}'' not found or failed; falling back to static price {1} sats",
+                        strategyName, config.priceSats());
+                return config.priceSats();
+            }
         }
+        return strategy.calculatePrice(request, config.priceSats());
     }
 
     /**
