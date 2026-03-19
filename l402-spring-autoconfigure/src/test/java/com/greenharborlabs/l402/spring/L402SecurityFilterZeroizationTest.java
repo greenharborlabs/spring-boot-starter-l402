@@ -9,6 +9,8 @@ import com.greenharborlabs.l402.core.macaroon.SensitiveBytes;
 import com.greenharborlabs.l402.core.protocol.L402Credential;
 import com.greenharborlabs.l402.core.protocol.L402Validator;
 
+import org.springframework.context.ApplicationContext;
+
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -127,8 +129,10 @@ class L402SecurityFilterZeroizationTest {
                 "Test protected endpoint", "", ""));
 
         var validator = new L402Validator(rootKeyStore, credentialStore, List.of(), SERVICE_NAME);
+        var properties = new L402Properties();
+        properties.setServiceName("test-service");
         var challengeService = new L402ChallengeService(
-                rootKeyStore, lightningBackend, null, null, null, null);
+                rootKeyStore, lightningBackend, properties, mock(ApplicationContext.class), null, null);
         return new L402SecurityFilter(
                 registry, validator, challengeService, SERVICE_NAME,
                 null, null, null);

@@ -51,15 +51,15 @@ public class L402ChallengeService {
 
     public L402ChallengeService(RootKeyStore rootKeyStore,
                                  LightningBackend lightningBackend,
-                                 L402Properties properties,
-                                 ApplicationContext applicationContext,
+                                 @Nullable L402Properties properties,
+                                 @Nullable ApplicationContext applicationContext,
                                  @Nullable L402EarningsTracker earningsTracker,
                                  @Nullable L402RateLimiter rateLimiter) {
         this.rootKeyStore = Objects.requireNonNull(rootKeyStore, "rootKeyStore must not be null");
         this.lightningBackend = Objects.requireNonNull(lightningBackend, "lightningBackend must not be null");
-        this.properties = Objects.requireNonNull(properties, "properties must not be null");
-        this.applicationContext = Objects.requireNonNull(applicationContext, "applicationContext must not be null");
-        String svcName = properties.getServiceName();
+        this.properties = properties;
+        this.applicationContext = applicationContext;
+        String svcName = (properties != null) ? properties.getServiceName() : null;
         this.serviceName = (svcName == null || svcName.isBlank()) ? "default" : svcName;
         this.earningsTracker = earningsTracker;
         this.rateLimiter = rateLimiter;
