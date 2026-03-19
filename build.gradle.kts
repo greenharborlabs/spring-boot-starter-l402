@@ -6,7 +6,7 @@ plugins {
     id("org.cyclonedx.bom") version "2.1.0" apply false
 }
 
-val springBootVersion = "4.0.3"
+val springBootVersion = "4.0.4"
 val caffeineVersion = "3.1.8"
 val grpcVersion = "1.68.1"
 val protobufVersion = "4.29.3"
