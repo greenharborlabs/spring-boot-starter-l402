@@ -144,7 +144,7 @@ public class L402SecurityFilter implements Filter {
                 }
                 ErrorCode errorCode = e.getErrorCode();
                 String tokenDetail = e.getTokenId() != null ? e.getTokenId() : "";
-                log.log(System.Logger.Level.WARNING, "L402 validation failed, errorCode={0}, tokenId={1}", errorCode, e.getTokenId());
+                log.log(System.Logger.Level.WARNING, "L402 validation failed, errorCode={0}", errorCode);
                 if (errorCode == ErrorCode.MALFORMED_HEADER) {
                     // Clearly malformed L402 header — return 400 Bad Request, do not issue a new invoice
                     log.log(System.Logger.Level.WARNING, "Malformed L402 header for token {0}: {1}", tokenDetail, e.getMessage());
