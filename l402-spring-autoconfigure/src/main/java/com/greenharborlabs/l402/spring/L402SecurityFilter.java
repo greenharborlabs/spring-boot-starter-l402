@@ -251,11 +251,4 @@ public class L402SecurityFilter implements Filter {
         return L402PathUtils.normalizePath(rawPath);
     }
 
-    /**
-     * Delegates to {@link L402PathUtils#percentDecodePath(String)}.
-     */
-    static String percentDecodePath(String path) {
-        return L402PathUtils.percentDecodePath(path);
-    }
-
 }

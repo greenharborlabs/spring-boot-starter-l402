@@ -527,32 +527,47 @@ class MacaroonSerializerTest {
         }
 
         @Test
-        @DisplayName("deserializes macaroon with exactly MAX_CAVEATS caveats")
+        @DisplayName("deserializes macaroon with MAX_CAVEATS - 1 caveats")
         void acceptsExactlyMaxCaveats() {
             byte[] identifier = identifierFilledWith((byte) 0xA1);
             byte[] signature = signatureFilledWith((byte) 0xB2);
-            List<Caveat> caveats = generateCaveats(MacaroonSerializer.MAX_CAVEATS);
+            int count = MacaroonSerializer.MAX_CAVEATS - 1;
+            List<Caveat> caveats = generateCaveats(count);
             var original = new Macaroon(identifier, null, caveats, signature);
 
             byte[] serialized = MacaroonSerializer.serializeV2(original);
             Macaroon result = MacaroonSerializer.deserializeV2(serialized);
 
-            assertThat(result.caveats()).hasSize(MacaroonSerializer.MAX_CAVEATS);
+            assertThat(result.caveats()).hasSize(count);
             assertThat(result.caveats()).isEqualTo(caveats);
         }
 
         @Test
-        @DisplayName("rejects macaroon with more than MAX_CAVEATS caveats")
+        @DisplayName("deserialize rejects macaroon with exactly MAX_CAVEATS caveats")
         void rejectsExceedingMaxCaveats() {
+            byte[] identifier = identifierFilledWith((byte) 0xA1);
+            byte[] signature = signatureFilledWith((byte) 0xB2);
+            int count = MacaroonSerializer.MAX_CAVEATS;
+            List<Caveat> caveats = generateCaveats(count);
+            var original = new Macaroon(identifier, null, caveats, signature);
+
+            // Serialize bypasses the check only if we build raw bytes, but now serialize
+            // also validates — so we expect serialize to reject it too.
+            assertThatThrownBy(() -> MacaroonSerializer.serializeV2(original))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("Too many caveats: %d, max: %d".formatted(count, MacaroonSerializer.MAX_CAVEATS));
+        }
+
+        @Test
+        @DisplayName("serialize rejects macaroon with >= MAX_CAVEATS caveats")
+        void serializeRejectsExceedingMaxCaveats() {
             byte[] identifier = identifierFilledWith((byte) 0xA1);
             byte[] signature = signatureFilledWith((byte) 0xB2);
             int count = MacaroonSerializer.MAX_CAVEATS + 1;
             List<Caveat> caveats = generateCaveats(count);
             var original = new Macaroon(identifier, null, caveats, signature);
 
-            byte[] serialized = MacaroonSerializer.serializeV2(original);
-
-            assertThatThrownBy(() -> MacaroonSerializer.deserializeV2(serialized))
+            assertThatThrownBy(() -> MacaroonSerializer.serializeV2(original))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessage("Too many caveats: %d, max: %d".formatted(count, MacaroonSerializer.MAX_CAVEATS));
         }

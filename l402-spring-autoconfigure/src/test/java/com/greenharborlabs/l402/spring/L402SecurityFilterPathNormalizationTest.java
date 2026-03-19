@@ -10,7 +10,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Pure unit tests for {@link L402SecurityFilter#normalizePath(String)} and
- * {@link L402SecurityFilter#percentDecodePath(String)}.
+ * {@link L402PathUtils#percentDecodePath(String)}.
  * No Spring context needed.
  */
 @DisplayName("L402SecurityFilter path normalization")
@@ -133,68 +133,68 @@ class L402SecurityFilterPathNormalizationTest {
         @Test
         @DisplayName("null returns null")
         void nullReturnsNull() {
-            assertThat(L402SecurityFilter.percentDecodePath(null)).isNull();
+            assertThat(L402PathUtils.percentDecodePath(null)).isNull();
         }
 
         @Test
         @DisplayName("empty returns empty")
         void emptyReturnsEmpty() {
-            assertThat(L402SecurityFilter.percentDecodePath("")).isEmpty();
+            assertThat(L402PathUtils.percentDecodePath("")).isEmpty();
         }
 
         @Test
         @DisplayName("no percent sequences passes through")
         void noPercentPassesThrough() {
-            assertThat(L402SecurityFilter.percentDecodePath("/api/protected")).isEqualTo("/api/protected");
+            assertThat(L402PathUtils.percentDecodePath("/api/protected")).isEqualTo("/api/protected");
         }
 
         @Test
         @DisplayName("decodes %2e to dot")
         void decodesPercentToDot() {
-            assertThat(L402SecurityFilter.percentDecodePath("%2e")).isEqualTo(".");
+            assertThat(L402PathUtils.percentDecodePath("%2e")).isEqualTo(".");
         }
 
         @Test
         @DisplayName("decodes uppercase %2E to dot")
         void decodesUppercasePercentToDot() {
-            assertThat(L402SecurityFilter.percentDecodePath("%2E")).isEqualTo(".");
+            assertThat(L402PathUtils.percentDecodePath("%2E")).isEqualTo(".");
         }
 
         @Test
         @DisplayName("decodes %25 to percent")
         void decodesPercentToPercent() {
-            assertThat(L402SecurityFilter.percentDecodePath("%25")).isEqualTo("%");
+            assertThat(L402PathUtils.percentDecodePath("%25")).isEqualTo("%");
         }
 
         @Test
         @DisplayName("plus sign is not treated as space")
         void plusIsNotSpace() {
-            assertThat(L402SecurityFilter.percentDecodePath("a+b")).isEqualTo("a+b");
+            assertThat(L402PathUtils.percentDecodePath("a+b")).isEqualTo("a+b");
         }
 
         @Test
         @DisplayName("incomplete percent at end passes through")
         void incompletePercentAtEnd() {
-            assertThat(L402SecurityFilter.percentDecodePath("abc%")).isEqualTo("abc%");
+            assertThat(L402PathUtils.percentDecodePath("abc%")).isEqualTo("abc%");
         }
 
         @Test
         @DisplayName("incomplete percent with one hex char passes through")
         void incompletePercentOneHex() {
-            assertThat(L402SecurityFilter.percentDecodePath("abc%2")).isEqualTo("abc%2");
+            assertThat(L402PathUtils.percentDecodePath("abc%2")).isEqualTo("abc%2");
         }
 
         @Test
         @DisplayName("invalid hex digits after percent passes through")
         void invalidHexAfterPercent() {
-            assertThat(L402SecurityFilter.percentDecodePath("%ZZ")).isEqualTo("%ZZ");
+            assertThat(L402PathUtils.percentDecodePath("%ZZ")).isEqualTo("%ZZ");
         }
 
         @Test
         @DisplayName("decodes multi-byte UTF-8 sequence")
         void decodesMultiByteUtf8() {
             // U+00E9 (e-acute) = UTF-8 bytes C3 A9
-            assertThat(L402SecurityFilter.percentDecodePath("%C3%A9")).isEqualTo("\u00e9");
+            assertThat(L402PathUtils.percentDecodePath("%C3%A9")).isEqualTo("\u00e9");
         }
     }
 }

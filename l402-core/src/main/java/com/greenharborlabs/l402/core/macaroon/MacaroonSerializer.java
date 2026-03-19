@@ -44,6 +44,11 @@ public final class MacaroonSerializer {
         ByteArrayOutputStream buf = new ByteArrayOutputStream();
         buf.write(VERSION_BYTE);
 
+        if (macaroon.caveats().size() >= MAX_CAVEATS) {
+            throw new IllegalArgumentException(
+                    "Too many caveats: %d, max: %d".formatted(macaroon.caveats().size(), MAX_CAVEATS));
+        }
+
         if (macaroon.location() != null) {
             writePacket(buf, FIELD_LOCATION, macaroon.location().getBytes(StandardCharsets.UTF_8));
         }
@@ -160,7 +165,7 @@ public final class MacaroonSerializer {
                     throw new IllegalArgumentException("Malformed caveat (no '=' separator): " + caveatStr);
                 }
                 caveats.add(new Caveat(caveatStr.substring(0, eqIdx), caveatStr.substring(eqIdx + 1)));
-                if (caveats.size() > MAX_CAVEATS) {
+                if (caveats.size() >= MAX_CAVEATS) {
                     throw new IllegalArgumentException(
                             "Too many caveats: %d, max: %d".formatted(caveats.size(), MAX_CAVEATS));
                 }
