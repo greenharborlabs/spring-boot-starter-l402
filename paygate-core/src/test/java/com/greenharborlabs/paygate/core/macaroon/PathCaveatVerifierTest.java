@@ -369,6 +369,60 @@ class PathCaveatVerifierTest {
     }
 
     // ---------------------------------------------------------------
+    // Monotonic restriction (US4)
+    // ---------------------------------------------------------------
+
+    @Nested
+    @DisplayName("monotonic restriction (US4)")
+    class MonotonicRestriction {
+
+        @Test
+        @DisplayName("US4-1: path=/api/** → path=/api/products/** is narrowing (accepted)")
+        void narrowingPathIsMoreRestrictive() {
+            Caveat previous = new Caveat("path", "/api/**");
+            Caveat current = new Caveat("path", "/api/products/**");
+
+            assertThat(verifier.isMoreRestrictive(previous, current)).isTrue();
+        }
+
+        @Test
+        @DisplayName("US4-2: path=/api/products/** → path=/api/** is broadening (rejected)")
+        void broadeningPathIsNotMoreRestrictive() {
+            Caveat previous = new Caveat("path", "/api/products/**");
+            Caveat current = new Caveat("path", "/api/**");
+
+            assertThat(verifier.isMoreRestrictive(previous, current)).isFalse();
+        }
+
+        @Test
+        @DisplayName("identical path patterns are accepted (not broadening)")
+        void identicalPathPatternsAccepted() {
+            Caveat previous = new Caveat("path", "/api/products/**");
+            Caveat current = new Caveat("path", "/api/products/**");
+
+            assertThat(verifier.isMoreRestrictive(previous, current)).isTrue();
+        }
+
+        @Test
+        @DisplayName("multi-pattern narrowing: subset of patterns is accepted")
+        void multiPatternSubsetAccepted() {
+            Caveat previous = new Caveat("path", "/api/**,/admin/**");
+            Caveat current = new Caveat("path", "/api/**");
+
+            assertThat(verifier.isMoreRestrictive(previous, current)).isTrue();
+        }
+
+        @Test
+        @DisplayName("multi-pattern broadening: adding a new pattern is rejected")
+        void multiPatternSupersetRejected() {
+            Caveat previous = new Caveat("path", "/api/**");
+            Caveat current = new Caveat("path", "/api/**,/admin/**");
+
+            assertThat(verifier.isMoreRestrictive(previous, current)).isFalse();
+        }
+    }
+
+    // ---------------------------------------------------------------
     // Helper
     // ---------------------------------------------------------------
 

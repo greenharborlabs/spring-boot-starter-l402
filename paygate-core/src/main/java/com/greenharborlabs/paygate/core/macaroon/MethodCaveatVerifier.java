@@ -3,6 +3,10 @@ package com.greenharborlabs.paygate.core.macaroon;
 import com.greenharborlabs.paygate.core.protocol.ErrorCode;
 import com.greenharborlabs.paygate.core.protocol.L402Exception;
 
+import java.util.HashSet;
+import java.util.Locale;
+import java.util.Set;
+
 /**
  * Verifies that the request HTTP method matches at least one method
  * specified in the {@code method} caveat value (comma-separated).
@@ -60,5 +64,20 @@ public class MethodCaveatVerifier implements CaveatVerifier {
         // 6. No method matched — reject
         throw new L402Exception(ErrorCode.INVALID_SERVICE,
                 "Request method does not match any allowed method", null);
+    }
+
+    @Override
+    public boolean isMoreRestrictive(Caveat previous, Caveat current) {
+        Set<String> previousSet = parseMethods(previous.value());
+        Set<String> currentSet = parseMethods(current.value());
+        return previousSet.containsAll(currentSet);
+    }
+
+    private static Set<String> parseMethods(String value) {
+        Set<String> methods = new HashSet<>();
+        for (String raw : value.split(",", -1)) {
+            methods.add(raw.trim().toUpperCase(Locale.ROOT));
+        }
+        return methods;
     }
 }

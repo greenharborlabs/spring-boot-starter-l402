@@ -238,6 +238,60 @@ class MethodCaveatVerifierTest {
     }
 
     // ---------------------------------------------------------------
+    // Monotonic restriction (US4)
+    // ---------------------------------------------------------------
+
+    @Nested
+    @DisplayName("monotonic restriction (US4)")
+    class MonotonicRestriction {
+
+        @Test
+        @DisplayName("US4-3: method=GET,POST,HEAD → method=GET,HEAD is subset (accepted)")
+        void subsetMethodsIsMoreRestrictive() {
+            Caveat previous = new Caveat("method", "GET,POST,HEAD");
+            Caveat current = new Caveat("method", "GET,HEAD");
+
+            assertThat(verifier.isMoreRestrictive(previous, current)).isTrue();
+        }
+
+        @Test
+        @DisplayName("US4-4: method=GET → method=GET,POST is superset (rejected)")
+        void supersetMethodsIsNotMoreRestrictive() {
+            Caveat previous = new Caveat("method", "GET");
+            Caveat current = new Caveat("method", "GET,POST");
+
+            assertThat(verifier.isMoreRestrictive(previous, current)).isFalse();
+        }
+
+        @Test
+        @DisplayName("identical method sets are accepted (not broadening)")
+        void identicalMethodSetsAccepted() {
+            Caveat previous = new Caveat("method", "GET,POST");
+            Caveat current = new Caveat("method", "GET,POST");
+
+            assertThat(verifier.isMoreRestrictive(previous, current)).isTrue();
+        }
+
+        @Test
+        @DisplayName("single method to same single method is accepted")
+        void singleToSameAccepted() {
+            Caveat previous = new Caveat("method", "GET");
+            Caveat current = new Caveat("method", "GET");
+
+            assertThat(verifier.isMoreRestrictive(previous, current)).isTrue();
+        }
+
+        @Test
+        @DisplayName("case-insensitive subset check: method=get,post → method=GET is accepted")
+        void caseInsensitiveSubsetAccepted() {
+            Caveat previous = new Caveat("method", "get,post");
+            Caveat current = new Caveat("method", "GET");
+
+            assertThat(verifier.isMoreRestrictive(previous, current)).isTrue();
+        }
+    }
+
+    // ---------------------------------------------------------------
     // Helper
     // ---------------------------------------------------------------
 

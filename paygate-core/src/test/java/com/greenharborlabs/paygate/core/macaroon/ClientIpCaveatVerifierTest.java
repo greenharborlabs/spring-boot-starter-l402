@@ -225,6 +225,60 @@ class ClientIpCaveatVerifierTest {
     }
 
     // ---------------------------------------------------------------
+    // Monotonic restriction (US4)
+    // ---------------------------------------------------------------
+
+    @Nested
+    @DisplayName("monotonic restriction (US4)")
+    class MonotonicRestriction {
+
+        @Test
+        @DisplayName("US4-5: client_ip=1.1.1.1,2.2.2.2 → client_ip=1.1.1.1 is subset (accepted)")
+        void subsetIpsIsMoreRestrictive() {
+            Caveat previous = new Caveat("client_ip", "1.1.1.1,2.2.2.2");
+            Caveat current = new Caveat("client_ip", "1.1.1.1");
+
+            assertThat(verifier.isMoreRestrictive(previous, current)).isTrue();
+        }
+
+        @Test
+        @DisplayName("client_ip=1.1.1.1 → client_ip=1.1.1.1,3.3.3.3 is superset (rejected)")
+        void supersetIpsIsNotMoreRestrictive() {
+            Caveat previous = new Caveat("client_ip", "1.1.1.1");
+            Caveat current = new Caveat("client_ip", "1.1.1.1,3.3.3.3");
+
+            assertThat(verifier.isMoreRestrictive(previous, current)).isFalse();
+        }
+
+        @Test
+        @DisplayName("identical IP sets are accepted (not broadening)")
+        void identicalIpSetsAccepted() {
+            Caveat previous = new Caveat("client_ip", "1.1.1.1,2.2.2.2");
+            Caveat current = new Caveat("client_ip", "1.1.1.1,2.2.2.2");
+
+            assertThat(verifier.isMoreRestrictive(previous, current)).isTrue();
+        }
+
+        @Test
+        @DisplayName("single IP to same single IP is accepted")
+        void singleToSameAccepted() {
+            Caveat previous = new Caveat("client_ip", "10.0.0.1");
+            Caveat current = new Caveat("client_ip", "10.0.0.1");
+
+            assertThat(verifier.isMoreRestrictive(previous, current)).isTrue();
+        }
+
+        @Test
+        @DisplayName("disjoint IP sets (no overlap) is rejected")
+        void disjointIpSetsRejected() {
+            Caveat previous = new Caveat("client_ip", "1.1.1.1");
+            Caveat current = new Caveat("client_ip", "2.2.2.2");
+
+            assertThat(verifier.isMoreRestrictive(previous, current)).isFalse();
+        }
+    }
+
+    // ---------------------------------------------------------------
     // Helper
     // ---------------------------------------------------------------
 

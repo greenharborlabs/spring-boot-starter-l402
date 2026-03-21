@@ -3,6 +3,10 @@ package com.greenharborlabs.paygate.core.macaroon;
 import com.greenharborlabs.paygate.core.protocol.ErrorCode;
 import com.greenharborlabs.paygate.core.protocol.L402Exception;
 
+import java.util.Arrays;
+import java.util.Set;
+import java.util.stream.Collectors;
+
 /**
  * Verifies that the request client IP matches at least one IP address
  * specified in the {@code client_ip} caveat value (comma-separated).
@@ -60,5 +64,16 @@ public class ClientIpCaveatVerifier implements CaveatVerifier {
         // 6. No IP matched — reject
         throw new L402Exception(ErrorCode.INVALID_SERVICE,
                 "Request client IP does not match any allowed IP", null);
+    }
+
+    @Override
+    public boolean isMoreRestrictive(Caveat previous, Caveat current) {
+        Set<String> previousIps = Arrays.stream(previous.value().split(",", -1))
+                .map(String::trim)
+                .collect(Collectors.toSet());
+        Set<String> currentIps = Arrays.stream(current.value().split(",", -1))
+                .map(String::trim)
+                .collect(Collectors.toSet());
+        return previousIps.containsAll(currentIps);
     }
 }

@@ -88,6 +88,73 @@ public final class PathGlobMatcher {
         }
     }
 
+    /**
+     * Returns true if the proposed pattern is at least as narrow as (contained within) the
+     * existing pattern. That is, every path matched by {@code proposedPattern} is also matched
+     * by {@code existingPattern}.
+     *
+     * <p>Conservative: returns false when uncertain.
+     */
+    public static boolean isContainedIn(String existingPattern, String proposedPattern) {
+        String normExisting = normalizePath(existingPattern);
+        String normProposed = normalizePath(proposedPattern);
+
+        String[] existingSegs = splitSegments(normExisting);
+        String[] proposedSegs = splitSegments(normProposed);
+
+        int ei = 0;
+        int pi = 0;
+
+        while (ei < existingSegs.length && pi < proposedSegs.length) {
+            String eSeg = existingSegs[ei];
+            String pSeg = proposedSegs[pi];
+
+            // existing ** terminal: existing matches everything remaining — contained
+            if ("**".equals(eSeg)) {
+                return true;
+            }
+
+            // proposed ** but existing is not ** — proposed is broader
+            if ("**".equals(pSeg)) {
+                return false;
+            }
+
+            // existing * accepts any single segment; proposed (literal or *) is same or narrower
+            if ("*".equals(eSeg)) {
+                ei++;
+                pi++;
+                continue;
+            }
+
+            // proposed * but existing is literal — proposed is broader
+            if ("*".equals(pSeg)) {
+                return false;
+            }
+
+            // both literal — must be equal
+            if (!eSeg.equals(pSeg)) {
+                return false;
+            }
+
+            ei++;
+            pi++;
+        }
+
+        // Both exhausted — identical structure, contained
+        if (ei == existingSegs.length && pi == proposedSegs.length) {
+            return true;
+        }
+
+        // Proposed exhausted, existing has segments remaining
+        if (pi == proposedSegs.length) {
+            // Contained only if remaining existing is exactly **
+            return ei == existingSegs.length - 1 && "**".equals(existingSegs[ei]);
+        }
+
+        // Existing exhausted, proposed has segments remaining — proposed matches paths existing doesn't
+        return false;
+    }
+
     private static String[] splitSegments(String normalizedPath) {
         // "/products/123" -> ["products", "123"]
         // "/" -> []

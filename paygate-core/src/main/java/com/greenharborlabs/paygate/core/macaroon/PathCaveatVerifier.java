@@ -84,6 +84,35 @@ public class PathCaveatVerifier implements CaveatVerifier {
                 "Request path does not match any allowed path pattern", null);
     }
 
+    @Override
+    public boolean isMoreRestrictive(Caveat previous, Caveat current) {
+        String[] previousPatterns = splitAndTrim(previous.value());
+        String[] currentPatterns = splitAndTrim(current.value());
+
+        for (String cp : currentPatterns) {
+            boolean contained = false;
+            for (String pp : previousPatterns) {
+                if (PathGlobMatcher.isContainedIn(pp, cp)) {
+                    contained = true;
+                    break;
+                }
+            }
+            if (!contained) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static String[] splitAndTrim(String value) {
+        String[] raw = value.split(",", -1);
+        String[] result = new String[raw.length];
+        for (int i = 0; i < raw.length; i++) {
+            result[i] = raw[i].trim();
+        }
+        return result;
+    }
+
     /**
      * Returns true if the path contains a percent-encoded slash (%2F or %2f,
      * case-insensitive on the hex digits).
