@@ -16,9 +16,12 @@ import jakarta.servlet.http.HttpServletResponse;
 
 import org.jspecify.annotations.Nullable;
 
+import com.greenharborlabs.paygate.core.macaroon.VerificationContextKeys;
+
 import java.io.IOException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Map;
 import java.util.Objects;
 import java.util.OptionalLong;
 import java.util.stream.LongStream;
@@ -46,6 +49,7 @@ public class PaygateSecurityFilter implements Filter {
     private final L402Validator validator;
     private final PaygateChallengeService challengeService;
     private final String serviceName;
+    private final ClientIpResolver clientIpResolver;
     private final PaygateMetrics metrics;
     private final PaygateEarningsTracker earningsTracker;
     private final PaygateRateLimiter rateLimiter;
@@ -59,6 +63,7 @@ public class PaygateSecurityFilter implements Filter {
                               L402Validator validator,
                               PaygateChallengeService challengeService,
                               String serviceName,
+                              @Nullable ClientIpResolver clientIpResolver,
                               @Nullable PaygateMetrics metrics,
                               @Nullable PaygateEarningsTracker earningsTracker,
                               @Nullable PaygateRateLimiter rateLimiter) {
@@ -66,6 +71,7 @@ public class PaygateSecurityFilter implements Filter {
         this.validator = Objects.requireNonNull(validator, "validator must not be null");
         this.challengeService = Objects.requireNonNull(challengeService, "challengeService must not be null");
         this.serviceName = (serviceName == null || serviceName.isBlank()) ? "default" : serviceName;
+        this.clientIpResolver = clientIpResolver;
         this.metrics = metrics;
         this.earningsTracker = earningsTracker;
         this.rateLimiter = rateLimiter;
@@ -119,10 +125,17 @@ public class PaygateSecurityFilter implements Filter {
             // Header matches L402/LSAT format — attempt validation (purely local, no Lightning needed)
             try {
                 // Build per-request context with capability from endpoint config
+                String clientIp = clientIpResolver != null
+                        ? clientIpResolver.resolve(httpRequest)
+                        : httpRequest.getRemoteAddr();
                 L402VerificationContext context = L402VerificationContext.builder()
                         .serviceName(serviceName)
                         .currentTime(Instant.now())
                         .requestedCapability(config.capability().isEmpty() ? null : config.capability())
+                        .requestMetadata(Map.of(
+                                VerificationContextKeys.REQUEST_PATH, path,
+                                VerificationContextKeys.REQUEST_METHOD, method,
+                                VerificationContextKeys.REQUEST_CLIENT_IP, clientIp))
                         .build();
                 L402Validator.ValidationResult result = validator.validate(components, context);
                 L402Credential credential = result.credential();

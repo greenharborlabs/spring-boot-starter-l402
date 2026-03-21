@@ -44,6 +44,7 @@ public final class PaygateAuthenticationProvider implements AuthenticationProvid
         L402VerificationContext context = L402VerificationContext.builder()
                 .serviceName(serviceName)
                 .requestedCapability(token.getRequestedCapability())
+                .requestMetadata(token.getRequestMetadata())
                 .build();
 
         try {
