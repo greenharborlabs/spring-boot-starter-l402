@@ -4,4 +4,6 @@
 dependencies {
     api(project(":paygate-api"))
     implementation(project(":paygate-core"))
+
+    testImplementation("org.mockito:mockito-core")
 }

@@ -1,6 +1,5 @@
 package com.greenharborlabs.paygate.spring.security;
 
-import com.greenharborlabs.paygate.spring.PaygateChallengeResult;
 import com.greenharborlabs.paygate.spring.PaygateChallengeService;
 import com.greenharborlabs.paygate.spring.PaygateEndpointConfig;
 import com.greenharborlabs.paygate.spring.PaygateEndpointRegistry;
@@ -60,8 +59,9 @@ public final class PaygateAuthenticationEntryPoint implements AuthenticationEntr
                 return;
             }
 
-            PaygateChallengeResult result = challengeService.createChallenge(request, config);
-            PaygateResponseWriter.writePaymentRequired(response, result);
+            // TODO(T029): Wire protocol-specific formatters to produce ChallengeResponse list
+            var challengeContext = challengeService.createChallenge(request, config);
+            PaygateResponseWriter.writePaymentRequired(response, challengeContext, java.util.List.of());
 
         } catch (PaygateRateLimitedException _) {
             PaygateResponseWriter.writeRateLimited(response);

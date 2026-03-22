@@ -13,6 +13,7 @@ import com.greenharborlabs.paygate.core.macaroon.MacaroonSerializer;
 import com.greenharborlabs.paygate.core.macaroon.RootKeyStore;
 import com.greenharborlabs.paygate.core.protocol.L402Credential;
 import com.greenharborlabs.paygate.core.protocol.L402Validator;
+import com.greenharborlabs.paygate.protocol.l402.L402Protocol;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -162,10 +163,11 @@ class PaygateMetricsTest {
             var properties = new PaygateProperties();
             properties.setServiceName("test-service");
             var validator = new L402Validator(rootKeyStore, credentialStore, caveatVerifiers, "test-service");
+            var l402Protocol = new L402Protocol(validator, "test-service");
             var challengeService = new PaygateChallengeService(
                     rootKeyStore, lightningBackendBean, properties, applicationContext, null, null);
             return new PaygateSecurityFilter(
-                    endpointRegistry, validator, challengeService, "test-service",
+                    endpointRegistry, List.of(l402Protocol), challengeService, "test-service",
                     null, paygateMetrics, null, null);
         }
 
@@ -360,7 +362,7 @@ class PaygateMetricsTest {
 
             mockMvc.perform(get(PROTECTED_PATH)
                             .header("Authorization", buildInvalidAuthHeader()))
-                    .andExpect(status().isUnauthorized());
+                    .andExpect(status().isPaymentRequired());
 
             double after = counterValue("paygate.requests", "endpoint", PROTECTED_PATH, "result", "rejected");
             assertThat(after).isEqualTo(before + 1.0);
@@ -373,7 +375,7 @@ class PaygateMetricsTest {
 
             mockMvc.perform(get(PROTECTED_PATH)
                             .header("Authorization", buildInvalidAuthHeader()))
-                    .andExpect(status().isUnauthorized());
+                    .andExpect(status().isPaymentRequired());
 
             double after = counterValue("paygate.revenue.sats", "endpoint", PROTECTED_PATH);
             assertThat(after).isEqualTo(before);
@@ -386,7 +388,7 @@ class PaygateMetricsTest {
 
             mockMvc.perform(get(PROTECTED_PATH)
                             .header("Authorization", buildInvalidAuthHeader()))
-                    .andExpect(status().isUnauthorized());
+                    .andExpect(status().isPaymentRequired());
 
             double after = counterValue("paygate.invoices.created", "endpoint", PROTECTED_PATH);
             assertThat(after).isEqualTo(before);
@@ -399,7 +401,7 @@ class PaygateMetricsTest {
 
             mockMvc.perform(get(PROTECTED_PATH)
                             .header("Authorization", buildInvalidAuthHeader()))
-                    .andExpect(status().isUnauthorized());
+                    .andExpect(status().isPaymentRequired());
 
             double after = counterValue("paygate.invoices.settled", "endpoint", PROTECTED_PATH);
             assertThat(after).isEqualTo(before);
@@ -595,7 +597,7 @@ class PaygateMetricsTest {
 
             mockMvc.perform(get(PROTECTED_PATH)
                             .header("Authorization", buildInvalidAuthHeader()))
-                    .andExpect(status().isUnauthorized());
+                    .andExpect(status().isPaymentRequired());
 
             long after = timerCount("paygate.caveats.verify.duration");
             assertThat(after).isEqualTo(before + 1);

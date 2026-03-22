@@ -18,6 +18,8 @@ import com.greenharborlabs.paygate.core.macaroon.PathCaveatVerifier;
 import com.greenharborlabs.paygate.core.macaroon.ServicesCaveatVerifier;
 import com.greenharborlabs.paygate.core.macaroon.ValidUntilCaveatVerifier;
 import com.greenharborlabs.paygate.core.protocol.L402Validator;
+import com.greenharborlabs.paygate.api.PaymentProtocol;
+import com.greenharborlabs.paygate.protocol.l402.L402Protocol;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -199,6 +201,22 @@ public class PaygateAutoConfiguration {
         return new L402Validator(rootKeyStore, credentialStore, caveatVerifiers, serviceName);
     }
 
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = "com.greenharborlabs.paygate.protocol.l402.L402Protocol")
+    static class L402ProtocolConfiguration {
+
+        @Bean
+        @ConditionalOnMissingBean(name = "l402Protocol")
+        PaymentProtocol l402Protocol(L402Validator paygateValidator,
+                                     PaygateProperties properties) {
+            String serviceName = properties.getServiceName();
+            if (serviceName == null || serviceName.isBlank()) {
+                serviceName = "default";
+            }
+            return new L402Protocol(paygateValidator, serviceName);
+        }
+    }
+
     @Bean
     @ConditionalOnMissingBean
     public PaygateEndpointRegistry paygateEndpointRegistry(RequestMappingHandlerMapping handlerMapping,
@@ -230,14 +248,14 @@ public class PaygateAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public PaygateSecurityFilter paygateSecurityFilter(PaygateEndpointRegistry registry,
-                                                  L402Validator paygateValidator,
+                                                  List<PaymentProtocol> protocols,
                                                   PaygateChallengeService paygateChallengeService,
                                                   PaygateProperties properties,
                                                   @Autowired(required = false) ClientIpResolver clientIpResolver,
                                                   @Autowired(required = false) PaygateMetrics paygateMetrics,
                                                   @Autowired(required = false) PaygateEarningsTracker paygateEarningsTracker,
                                                   @Autowired(required = false) PaygateRateLimiter paygateRateLimiter) {
-        return new PaygateSecurityFilter(registry, paygateValidator, paygateChallengeService,
+        return new PaygateSecurityFilter(registry, protocols, paygateChallengeService,
                 properties.getServiceName(), clientIpResolver, paygateMetrics, paygateEarningsTracker, paygateRateLimiter);
     }
 
