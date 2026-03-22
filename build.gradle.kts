@@ -11,7 +11,7 @@ val caffeineVersion = "3.1.8"
 val grpcVersion = "1.68.1"
 val protobufVersion = "4.29.3"
 val jacksonVersion = "2.18.2"
-val assertjVersion = "3.27.3"
+val assertjVersion = "3.27.7"
 val mockWebServerVersion = "4.12.0"
 
 allprojects {
