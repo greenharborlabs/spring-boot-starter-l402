@@ -39,8 +39,15 @@ import org.springframework.core.Ordered;
 import org.springframework.core.env.Environment;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
+
+import org.springframework.context.annotation.Condition;
+import org.springframework.context.annotation.ConditionContext;
+import org.springframework.core.type.AnnotatedTypeMetadata;
 
 /**
  * Auto-configuration for L402 payment authentication.
@@ -203,6 +210,7 @@ public class PaygateAutoConfiguration {
 
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(name = "com.greenharborlabs.paygate.protocol.l402.L402Protocol")
+    @ConditionalOnProperty(name = "paygate.protocols.l402.enabled", havingValue = "true", matchIfMissing = true)
     static class L402ProtocolConfiguration {
 
         @Bean
@@ -215,6 +223,117 @@ public class PaygateAutoConfiguration {
             }
             return new L402Protocol(paygateValidator, serviceName);
         }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = "com.greenharborlabs.paygate.protocol.mpp.MppProtocol")
+    @Conditional(PaygateAutoConfiguration.MppEnabledCondition.class)
+    static class MppProtocolConfiguration {
+
+        @Bean
+        @ConditionalOnMissingBean(name = "mppProtocol")
+        PaymentProtocol mppProtocol(PaygateProperties properties,
+                                     ProtocolStartupValidator _validator) {
+            String secret = properties.getProtocols().getMpp().getChallengeBindingSecret();
+            byte[] secretBytes = secret.getBytes(StandardCharsets.UTF_8);
+            try {
+                return new com.greenharborlabs.paygate.protocol.mpp.MppProtocol(secretBytes);
+            } finally {
+                Arrays.fill(secretBytes, (byte) 0);
+            }
+        }
+    }
+
+    /**
+     * Condition that determines whether the MPP protocol should be enabled.
+     *
+     * <ul>
+     *   <li>{@code paygate.protocols.mpp.enabled=false} -- not enabled</li>
+     *   <li>{@code paygate.protocols.mpp.enabled=true} -- enabled (secret validated by startup validator)</li>
+     *   <li>{@code paygate.protocols.mpp.enabled=auto} (default) -- enabled only if secret is present</li>
+     * </ul>
+     */
+    static class MppEnabledCondition implements Condition {
+
+        @Override
+        public boolean matches(ConditionContext context,
+                               AnnotatedTypeMetadata metadata) {
+            String enabled = context.getEnvironment()
+                    .getProperty("paygate.protocols.mpp.enabled", "auto");
+            return switch (enabled.toLowerCase(Locale.ROOT)) {
+                case "false" -> false;
+                case "true" -> true;
+                case "auto" -> {
+                    String secret = context.getEnvironment()
+                            .getProperty("paygate.protocols.mpp.challenge-binding-secret");
+                    yield secret != null && !secret.isBlank();
+                }
+                default -> false;
+            };
+        }
+    }
+
+    @Bean
+    ProtocolStartupValidator protocolStartupValidator(PaygateProperties properties) {
+        var mppConfig = properties.getProtocols().getMpp();
+        String mppEnabled = mppConfig.getEnabled();
+        String secret = mppConfig.getChallengeBindingSecret();
+        boolean secretPresent = secret != null && !secret.isBlank();
+
+        // Fail if mpp.enabled=true but no secret provided
+        if ("true".equalsIgnoreCase(mppEnabled) && !secretPresent) {
+            throw new IllegalStateException(
+                    "paygate.protocols.mpp.enabled=true but paygate.protocols.mpp.challenge-binding-secret "
+                            + "is not set. Provide a secret of at least 32 UTF-8 bytes.");
+        }
+
+        // Fail if secret is provided but too short
+        if (secretPresent) {
+            int byteLength = secret.getBytes(StandardCharsets.UTF_8).length;
+            if (byteLength < 32) {
+                throw new IllegalStateException(
+                        "paygate.protocols.mpp.challenge-binding-secret must be at least 32 UTF-8 bytes, "
+                                + "got " + byteLength + " bytes.");
+            }
+        }
+
+        // Determine which protocols will be active based on configuration + classpath
+        boolean l402OnClasspath = isClassPresent("com.greenharborlabs.paygate.protocol.l402.L402Protocol");
+        boolean mppOnClasspath = isClassPresent("com.greenharborlabs.paygate.protocol.mpp.MppProtocol");
+        boolean l402Active = properties.getProtocols().getL402().isEnabled() && l402OnClasspath;
+        boolean mppActive = isMppEffectivelyEnabled(mppEnabled, secretPresent) && mppOnClasspath;
+
+        // Only validate "no protocols" when at least one protocol JAR is on the classpath.
+        // If no protocol JARs are present, this is a dependency setup issue, not a config error.
+        if ((l402OnClasspath || mppOnClasspath) && !l402Active && !mppActive) {
+            throw new IllegalStateException(
+                    "No payment protocols are enabled. At least one protocol must be active. "
+                            + "Enable L402 (paygate.protocols.l402.enabled=true) or MPP "
+                            + "(paygate.protocols.mpp.enabled=true with a challenge-binding-secret).");
+        }
+
+        int count = (l402Active ? 1 : 0) + (mppActive ? 1 : 0);
+        return new ProtocolStartupValidator(count);
+    }
+
+    private static boolean isMppEffectivelyEnabled(String mppEnabled, boolean secretPresent) {
+        return switch (mppEnabled.toLowerCase(Locale.ROOT)) {
+            case "true" -> true;
+            case "auto" -> secretPresent;
+            default -> false;
+        };
+    }
+
+    private static boolean isClassPresent(String className) {
+        try {
+            Class.forName(className, false, PaygateAutoConfiguration.class.getClassLoader());
+            return true;
+        } catch (ClassNotFoundException _) {
+            return false;
+        }
+    }
+
+    record ProtocolStartupValidator(int activeProtocolCount) {
     }
 
     @Bean

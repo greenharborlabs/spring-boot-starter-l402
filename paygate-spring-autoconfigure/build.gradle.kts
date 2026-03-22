@@ -18,6 +18,7 @@ dependencies {
 
     // Protocol modules — optional; consumers bring the ones they need
     compileOnly(project(":paygate-protocol-l402"))
+    compileOnly(project(":paygate-protocol-mpp"))
 
     // Lightning backend modules — optional; consumers bring the one they need
     compileOnly(project(":paygate-lightning-lnbits"))
@@ -29,6 +30,7 @@ dependencies {
     annotationProcessor("org.springframework.boot:spring-boot-configuration-processor")
 
     testImplementation(project(":paygate-protocol-l402"))
+    testImplementation(project(":paygate-protocol-mpp"))
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.boot:spring-boot-starter-web")
     testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
