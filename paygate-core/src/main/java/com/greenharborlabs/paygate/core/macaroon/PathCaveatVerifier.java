@@ -50,16 +50,17 @@ public class PathCaveatVerifier implements CaveatVerifier {
             }
         }
 
-        // 5. Validate each pattern
-        String[] patterns = new String[rawPatterns.length];
+        // 5. Validate each pattern and pre-normalize
+        String[] normalizedPatterns = new String[rawPatterns.length];
         for (int i = 0; i < rawPatterns.length; i++) {
-            patterns[i] = rawPatterns[i].trim();
+            String trimmed = rawPatterns[i].trim();
             try {
-                PathGlobMatcher.validatePattern(patterns[i]);
+                PathGlobMatcher.validatePattern(trimmed);
             } catch (IllegalArgumentException e) {
                 throw new L402Exception(ErrorCode.INVALID_SERVICE,
                         "Invalid path pattern: " + e.getMessage(), null);
             }
+            normalizedPatterns[i] = PathGlobMatcher.normalizePath(trimmed);
         }
 
         // 6. Reject encoded slashes — prevents path traversal attacks.
@@ -69,12 +70,12 @@ public class PathCaveatVerifier implements CaveatVerifier {
                     "Request path contains encoded slash", null);
         }
 
-        // 7. Normalize request path
+        // 7. Normalize request path once
         String normalizedPath = PathGlobMatcher.normalizePath(requestPath);
 
-        // 8. Match against each pattern — return on first match
-        for (String pattern : patterns) {
-            if (PathGlobMatcher.matches(pattern, normalizedPath)) {
+        // 8. Match against each pre-normalized pattern — return on first match
+        for (String normalizedPattern : normalizedPatterns) {
+            if (PathGlobMatcher.matchNormalized(normalizedPattern, normalizedPath)) {
                 return;
             }
         }
@@ -86,13 +87,23 @@ public class PathCaveatVerifier implements CaveatVerifier {
 
     @Override
     public boolean isMoreRestrictive(Caveat previous, Caveat current) {
-        String[] previousPatterns = splitAndTrim(previous.value());
-        String[] currentPatterns = splitAndTrim(current.value());
+        // Split once and reuse for both the guard check and the subset computation
+        String[] previousRaw = previous.value().split(",", -1);
+        String[] currentRaw = current.value().split(",", -1);
 
-        for (String cp : currentPatterns) {
+        // Reject oversized caveats before expensive subset-containment check
+        if (previousRaw.length > maxValuesPerCaveat
+                || currentRaw.length > maxValuesPerCaveat) {
+            return false;
+        }
+
+        String[] previousNormalized = trimAndNormalize(previousRaw);
+        String[] currentNormalized = trimAndNormalize(currentRaw);
+
+        for (String cp : currentNormalized) {
             boolean contained = false;
-            for (String pp : previousPatterns) {
-                if (PathGlobMatcher.isContainedIn(pp, cp)) {
+            for (String pp : previousNormalized) {
+                if (PathGlobMatcher.isContainedInNormalized(pp, cp)) {
                     contained = true;
                     break;
                 }
@@ -104,11 +115,10 @@ public class PathCaveatVerifier implements CaveatVerifier {
         return true;
     }
 
-    private static String[] splitAndTrim(String value) {
-        String[] raw = value.split(",", -1);
+    private static String[] trimAndNormalize(String[] raw) {
         String[] result = new String[raw.length];
         for (int i = 0; i < raw.length; i++) {
-            result[i] = raw[i].trim();
+            result[i] = PathGlobMatcher.normalizePath(raw[i].trim());
         }
         return result;
     }

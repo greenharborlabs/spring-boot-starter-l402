@@ -59,17 +59,21 @@ public final class PathGlobMatcher {
      * {@code **} as the last segment matches zero or more remaining segments.
      */
     public static boolean matches(String pattern, String path) {
-        // Normalize both
-        String normPattern = normalizePath(pattern);
-        String normPath = normalizePath(path);
+        return matchNormalized(normalizePath(pattern), normalizePath(path));
+    }
 
+    /**
+     * Glob matching on already-normalized pattern and path. Callers must ensure both
+     * arguments have been passed through {@link #normalizePath(String)} beforehand.
+     */
+    public static boolean matchNormalized(String normalizedPattern, String normalizedPath) {
         // Root-only pattern
-        if ("/".equals(normPattern)) {
-            return "/".equals(normPath);
+        if ("/".equals(normalizedPattern)) {
+            return "/".equals(normalizedPath);
         }
 
-        String[] patternSegs = splitSegments(normPattern);
-        String[] pathSegs = splitSegments(normPath);
+        String[] patternSegs = splitSegments(normalizedPattern);
+        String[] pathSegs = splitSegments(normalizedPath);
 
         return matchSegments(patternSegs, pathSegs, 0, 0);
     }
@@ -96,11 +100,16 @@ public final class PathGlobMatcher {
      * <p>Conservative: returns false when uncertain.
      */
     public static boolean isContainedIn(String existingPattern, String proposedPattern) {
-        String normExisting = normalizePath(existingPattern);
-        String normProposed = normalizePath(proposedPattern);
+        return isContainedInNormalized(normalizePath(existingPattern), normalizePath(proposedPattern));
+    }
 
-        String[] existingSegs = splitSegments(normExisting);
-        String[] proposedSegs = splitSegments(normProposed);
+    /**
+     * Containment check on already-normalized patterns. Callers must ensure both
+     * arguments have been passed through {@link #normalizePath(String)} beforehand.
+     */
+    public static boolean isContainedInNormalized(String normalizedExisting, String normalizedProposed) {
+        String[] existingSegs = splitSegments(normalizedExisting);
+        String[] proposedSegs = splitSegments(normalizedProposed);
 
         int ei = 0;
         int pi = 0;

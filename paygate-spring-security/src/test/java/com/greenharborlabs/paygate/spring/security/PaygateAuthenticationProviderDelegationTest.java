@@ -10,6 +10,7 @@ import com.greenharborlabs.paygate.core.protocol.L402Credential;
 import com.greenharborlabs.paygate.core.protocol.L402HeaderComponents;
 import com.greenharborlabs.paygate.core.protocol.L402Validator;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -130,6 +131,23 @@ class PaygateAuthenticationProviderDelegationTest {
         var authToken = (PaygateAuthenticationToken) result;
         assertThat(authToken.getTokenId()).isEqualTo(credential.tokenId());
         assertThat(authToken.getServiceName()).isEqualTo(SERVICE_NAME);
+    }
+
+    @Test
+    @DisplayName("FR-003b Spring Security path: encoded slash %2F preserved in verification context")
+    void encodedSlashPreservedInVerificationContext() {
+        String pathWithEncodedSlash = "/api/products%2Fadmin";
+        L402Credential credential = createTestCredential(List.of());
+        stubValidatorSuccess(credential);
+
+        var unauthToken = createUnauthenticatedTokenWithMetadata(
+                pathWithEncodedSlash, TEST_METHOD, TEST_CLIENT_IP);
+
+        provider.authenticate(unauthToken);
+
+        L402VerificationContext captured = captureVerificationContext();
+        assertThat(captured.getRequestMetadata())
+                .containsEntry(VerificationContextKeys.REQUEST_PATH, "/api/products%2Fadmin");
     }
 
     // --- helpers ---

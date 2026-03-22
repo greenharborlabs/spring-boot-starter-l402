@@ -8,6 +8,8 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -286,6 +288,39 @@ class MethodCaveatVerifierTest {
         void caseInsensitiveSubsetAccepted() {
             Caveat previous = new Caveat("method", "get,post");
             Caveat current = new Caveat("method", "GET");
+
+            assertThat(verifier.isMoreRestrictive(previous, current)).isTrue();
+        }
+
+        @Test
+        @DisplayName("rejects oversized previous caveat in isMoreRestrictive")
+        void rejectsOversizedPreviousCaveat() {
+            String oversized = IntStream.rangeClosed(1, 51)
+                    .mapToObj(i -> "M" + i)
+                    .collect(Collectors.joining(","));
+            Caveat previous = new Caveat("method", oversized);
+            Caveat current = new Caveat("method", "GET");
+
+            assertThat(verifier.isMoreRestrictive(previous, current)).isFalse();
+        }
+
+        @Test
+        @DisplayName("rejects oversized current caveat in isMoreRestrictive")
+        void rejectsOversizedCurrentCaveat() {
+            String oversized = IntStream.rangeClosed(1, 51)
+                    .mapToObj(i -> "M" + i)
+                    .collect(Collectors.joining(","));
+            Caveat previous = new Caveat("method", "GET");
+            Caveat current = new Caveat("method", oversized);
+
+            assertThat(verifier.isMoreRestrictive(previous, current)).isFalse();
+        }
+
+        @Test
+        @DisplayName("accepts within-bounds caveats in isMoreRestrictive")
+        void acceptsWithinBoundsCaveats() {
+            Caveat previous = new Caveat("method", "GET,POST,PUT,DELETE,PATCH");
+            Caveat current = new Caveat("method", "GET,POST,PUT");
 
             assertThat(verifier.isMoreRestrictive(previous, current)).isTrue();
         }

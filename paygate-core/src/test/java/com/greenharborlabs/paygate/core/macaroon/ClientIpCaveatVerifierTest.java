@@ -8,6 +8,8 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -120,15 +122,33 @@ class ClientIpCaveatVerifierTest {
         }
 
         @Test
-        @DisplayName("different IPv6 representations do NOT match (exact string comparison)")
-        void differentIpv6RepresentationsDoNotMatch() {
+        @DisplayName("IPv6 short form matches long form via normalization")
+        void ipv6ShortFormMatchesLongForm() {
+            Caveat caveat = new Caveat("client_ip", "::1");
+            L402VerificationContext context = contextWithClientIp("0:0:0:0:0:0:0:1");
+
+            assertThatCode(() -> verifier.verify(caveat, context))
+                    .doesNotThrowAnyException();
+        }
+
+        @Test
+        @DisplayName("IPv6 long form matches short form via normalization")
+        void ipv6LongFormMatchesShortForm() {
+            Caveat caveat = new Caveat("client_ip", "0:0:0:0:0:0:0:1");
+            L402VerificationContext context = contextWithClientIp("::1");
+
+            assertThatCode(() -> verifier.verify(caveat, context))
+                    .doesNotThrowAnyException();
+        }
+
+        @Test
+        @DisplayName("different IPv6 representations match via normalization")
+        void differentIpv6RepresentationsMatch() {
             Caveat caveat = new Caveat("client_ip", "2001:db8::1");
             L402VerificationContext context = contextWithClientIp("2001:0db8:0000:0000:0000:0000:0000:0001");
 
-            assertThatThrownBy(() -> verifier.verify(caveat, context))
-                    .isInstanceOf(L402Exception.class)
-                    .extracting(e -> ((L402Exception) e).getErrorCode())
-                    .isEqualTo(ErrorCode.INVALID_SERVICE);
+            assertThatCode(() -> verifier.verify(caveat, context))
+                    .doesNotThrowAnyException();
         }
 
         @Test
@@ -222,6 +242,28 @@ class ClientIpCaveatVerifierTest {
                     .extracting(e -> ((L402Exception) e).getErrorCode())
                     .isEqualTo(ErrorCode.INVALID_SERVICE);
         }
+
+        @Test
+        @DisplayName("non-IP string falls back to exact match when both sides match")
+        void nonIpStringFallsBackToExactMatch() {
+            Caveat caveat = new Caveat("client_ip", "not-an-ip");
+            L402VerificationContext context = contextWithClientIp("not-an-ip");
+
+            assertThatCode(() -> verifier.verify(caveat, context))
+                    .doesNotThrowAnyException();
+        }
+
+        @Test
+        @DisplayName("hostname never triggers DNS lookup — fails matching without resolution")
+        void hostnameNeverTriggersDnsLookup() {
+            Caveat caveat = new Caveat("client_ip", "attacker.example.com");
+            L402VerificationContext context = contextWithClientIp("1.2.3.4");
+
+            assertThatThrownBy(() -> verifier.verify(caveat, context))
+                    .isInstanceOf(L402Exception.class)
+                    .extracting(e -> ((L402Exception) e).getErrorCode())
+                    .isEqualTo(ErrorCode.INVALID_SERVICE);
+        }
     }
 
     // ---------------------------------------------------------------
@@ -275,6 +317,54 @@ class ClientIpCaveatVerifierTest {
             Caveat current = new Caveat("client_ip", "2.2.2.2");
 
             assertThat(verifier.isMoreRestrictive(previous, current)).isFalse();
+        }
+
+        @Test
+        @DisplayName("rejects oversized previous caveat in isMoreRestrictive")
+        void rejectsOversizedPreviousCaveat() {
+            String oversized = IntStream.rangeClosed(1, 51)
+                    .mapToObj(i -> "10.0.0." + i)
+                    .collect(Collectors.joining(","));
+            Caveat previous = new Caveat("client_ip", oversized);
+            Caveat current = new Caveat("client_ip", "10.0.0.1");
+
+            assertThat(verifier.isMoreRestrictive(previous, current)).isFalse();
+        }
+
+        @Test
+        @DisplayName("rejects oversized current caveat in isMoreRestrictive")
+        void rejectsOversizedCurrentCaveat() {
+            String oversized = IntStream.rangeClosed(1, 51)
+                    .mapToObj(i -> "10.0.0." + i)
+                    .collect(Collectors.joining(","));
+            Caveat previous = new Caveat("client_ip", "10.0.0.1");
+            Caveat current = new Caveat("client_ip", oversized);
+
+            assertThat(verifier.isMoreRestrictive(previous, current)).isFalse();
+        }
+
+        @Test
+        @DisplayName("IPv6 normalization in isMoreRestrictive: ::1 subset of 0:0:0:0:0:0:0:1,2.2.2.2")
+        void ipv6NormalizationInIsMoreRestrictive() {
+            Caveat previous = new Caveat("client_ip", "0:0:0:0:0:0:0:1,2.2.2.2");
+            Caveat current = new Caveat("client_ip", "::1");
+
+            assertThat(verifier.isMoreRestrictive(previous, current)).isTrue();
+        }
+
+        @Test
+        @DisplayName("accepts within-bounds caveats in isMoreRestrictive")
+        void acceptsWithinBoundsCaveats() {
+            String fiveIps = IntStream.rangeClosed(1, 5)
+                    .mapToObj(i -> "10.0.0." + i)
+                    .collect(Collectors.joining(","));
+            String threeIps = IntStream.rangeClosed(1, 3)
+                    .mapToObj(i -> "10.0.0." + i)
+                    .collect(Collectors.joining(","));
+            Caveat previous = new Caveat("client_ip", fiveIps);
+            Caveat current = new Caveat("client_ip", threeIps);
+
+            assertThat(verifier.isMoreRestrictive(previous, current)).isTrue();
         }
     }
 

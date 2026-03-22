@@ -9,6 +9,7 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
 
+import java.time.Instant;
 import java.util.Objects;
 
 /**
@@ -45,6 +46,7 @@ public final class PaygateAuthenticationProvider implements AuthenticationProvid
                 .serviceName(serviceName)
                 .requestedCapability(token.getRequestedCapability())
                 .requestMetadata(token.getRequestMetadata())
+                .currentTime(Instant.now())
                 .build();
 
         try {

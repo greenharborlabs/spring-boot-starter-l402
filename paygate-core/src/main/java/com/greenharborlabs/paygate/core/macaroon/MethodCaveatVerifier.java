@@ -68,15 +68,25 @@ public class MethodCaveatVerifier implements CaveatVerifier {
 
     @Override
     public boolean isMoreRestrictive(Caveat previous, Caveat current) {
-        Set<String> previousSet = parseMethods(previous.value());
-        Set<String> currentSet = parseMethods(current.value());
+        // Split once and reuse for both the guard check and the subset computation
+        String[] previousRaw = previous.value().split(",", -1);
+        String[] currentRaw = current.value().split(",", -1);
+
+        // Reject oversized caveats before expensive subset-containment check
+        if (previousRaw.length > maxValuesPerCaveat
+                || currentRaw.length > maxValuesPerCaveat) {
+            return false;
+        }
+
+        Set<String> previousSet = toMethodSet(previousRaw);
+        Set<String> currentSet = toMethodSet(currentRaw);
         return previousSet.containsAll(currentSet);
     }
 
-    private static Set<String> parseMethods(String value) {
+    private static Set<String> toMethodSet(String[] raw) {
         Set<String> methods = new HashSet<>();
-        for (String raw : value.split(",", -1)) {
-            methods.add(raw.trim().toUpperCase(Locale.ROOT));
+        for (String entry : raw) {
+            methods.add(entry.trim().toUpperCase(Locale.ROOT));
         }
         return methods;
     }

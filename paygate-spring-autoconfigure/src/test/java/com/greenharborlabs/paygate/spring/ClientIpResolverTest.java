@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("ClientIpResolver")
 class ClientIpResolverTest {
@@ -75,7 +76,7 @@ class ClientIpResolverTest {
             @Test
             @DisplayName("returns remoteAddr when all XFF entries are trusted")
             void returnsRemoteAddrWhenAllTrusted() {
-                var resolver = new ClientIpResolver(true, List.of("client", "proxy1", "proxy2"));
+                var resolver = new ClientIpResolver(true, List.of("10.0.0.1", "client", "proxy1", "proxy2"));
                 var request = new MockHttpServletRequest();
                 request.setRemoteAddr("10.0.0.1");
                 request.addHeader("X-Forwarded-For", "client, proxy1, proxy2");
@@ -86,9 +87,9 @@ class ClientIpResolverTest {
             }
 
             @Test
-            @DisplayName("returns single XFF value when present")
+            @DisplayName("returns single XFF value when present and caller is trusted")
             void returnsSingleXffValue() {
-                var resolver = new ClientIpResolver(true, List.of());
+                var resolver = new ClientIpResolver(true, List.of("10.0.0.1"));
                 var request = new MockHttpServletRequest();
                 request.setRemoteAddr("10.0.0.1");
                 request.addHeader("X-Forwarded-For", "203.0.113.50");
@@ -123,6 +124,95 @@ class ClientIpResolverTest {
 
                 assertThat(result).isEqualTo("10.0.0.1");
             }
+
+            @Test
+            @DisplayName("ignores XFF when direct caller is not a trusted proxy")
+            void untrustedCallerWithXffIsIgnored() {
+                var resolver = new ClientIpResolver(true, List.of("10.0.0.1"));
+                var request = new MockHttpServletRequest();
+                request.setRemoteAddr("1.2.3.4");
+                request.addHeader("X-Forwarded-For", "5.6.7.8");
+
+                String result = resolver.resolve(request);
+
+                assertThat(result).isEqualTo("1.2.3.4");
+            }
+
+            @Test
+            @DisplayName("honors XFF when direct caller is a trusted proxy")
+            void trustedCallerXffIsHonored() {
+                var resolver = new ClientIpResolver(true, List.of("10.0.0.1"));
+                var request = new MockHttpServletRequest();
+                request.setRemoteAddr("10.0.0.1");
+                request.addHeader("X-Forwarded-For", "5.6.7.8");
+
+                String result = resolver.resolve(request);
+
+                assertThat(result).isEqualTo("5.6.7.8");
+            }
+
+            @Test
+            @DisplayName("empty trusted proxies never trusts XFF")
+            void emptyTrustedProxiesNeverTrustsXff() {
+                var resolver = new ClientIpResolver(true, List.of());
+                var request = new MockHttpServletRequest();
+                request.setRemoteAddr("1.2.3.4");
+                request.addHeader("X-Forwarded-For", "5.6.7.8");
+
+                String result = resolver.resolve(request);
+
+                assertThat(result).isEqualTo("1.2.3.4");
+            }
+
+            @Test
+            @DisplayName("trusted caller with no XFF returns remoteAddr")
+            void trustedCallerNoXffReturnsRemoteAddr() {
+                var resolver = new ClientIpResolver(true, List.of("10.0.0.1"));
+                var request = new MockHttpServletRequest();
+                request.setRemoteAddr("10.0.0.1");
+
+                String result = resolver.resolve(request);
+
+                assertThat(result).isEqualTo("10.0.0.1");
+            }
+
+            @Test
+            @DisplayName("IPv6 proxy recognized in short form")
+            void ipv6ProxyRecognizedShortForm() {
+                var resolver = new ClientIpResolver(true, List.of("0:0:0:0:0:0:0:1"));
+                var request = new MockHttpServletRequest();
+                request.setRemoteAddr("::1");
+                request.addHeader("X-Forwarded-For", "5.6.7.8");
+
+                String result = resolver.resolve(request);
+
+                assertThat(result).isEqualTo("5.6.7.8");
+            }
+
+            @Test
+            @DisplayName("IPv6 proxy recognized in long form")
+            void ipv6ProxyRecognizedLongForm() {
+                var resolver = new ClientIpResolver(true, List.of("::1"));
+                var request = new MockHttpServletRequest();
+                request.setRemoteAddr("0:0:0:0:0:0:0:1");
+                request.addHeader("X-Forwarded-For", "5.6.7.8");
+
+                String result = resolver.resolve(request);
+
+                assertThat(result).isEqualTo("5.6.7.8");
+            }
+        }
+    }
+
+    @Nested
+    @DisplayName("constructor validation")
+    class ConstructorValidation {
+
+        @Test
+        @DisplayName("throws NullPointerException when trustedProxyAddresses is null")
+        void throwsOnNullTrustedProxyAddresses() {
+            assertThatThrownBy(() -> new ClientIpResolver(true, null))
+                    .isInstanceOf(NullPointerException.class);
         }
     }
 }

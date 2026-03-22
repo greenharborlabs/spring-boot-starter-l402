@@ -110,4 +110,61 @@ class CaveatVerifierIntegrationTest {
                     .doesNotThrowAnyException();
         }
     }
+
+    // ---------------------------------------------------------------
+    // Cached credential re-evaluation (FR-020)
+    // ---------------------------------------------------------------
+
+    @Nested
+    @DisplayName("cached credential re-evaluation per request context")
+    class CachedCredentialReEvaluation {
+
+        @Test
+        @DisplayName("FR-020: same macaroon re-evaluated per request context — path")
+        void sameMacaroonReEvaluatedPerRequestContextPath() {
+            List<Caveat> caveats = List.of(new Caveat("path", "/api/products/**"));
+
+            L402VerificationContext contextA = L402VerificationContext.builder()
+                    .requestMetadata(Map.of(
+                            VerificationContextKeys.REQUEST_PATH, "/api/products/1"
+                    ))
+                    .build();
+
+            assertThatCode(() -> MacaroonVerifier.verifyCaveats(caveats, allVerifiers, contextA))
+                    .doesNotThrowAnyException();
+
+            L402VerificationContext contextB = L402VerificationContext.builder()
+                    .requestMetadata(Map.of(
+                            VerificationContextKeys.REQUEST_PATH, "/api/admin/settings"
+                    ))
+                    .build();
+
+            assertThatThrownBy(() -> MacaroonVerifier.verifyCaveats(caveats, allVerifiers, contextB))
+                    .isInstanceOf(L402Exception.class);
+        }
+
+        @Test
+        @DisplayName("FR-020: same macaroon re-evaluated with different method")
+        void sameMacaroonReEvaluatedWithDifferentMethod() {
+            List<Caveat> caveats = List.of(new Caveat("method", "GET"));
+
+            L402VerificationContext contextA = L402VerificationContext.builder()
+                    .requestMetadata(Map.of(
+                            VerificationContextKeys.REQUEST_METHOD, "GET"
+                    ))
+                    .build();
+
+            assertThatCode(() -> MacaroonVerifier.verifyCaveats(caveats, allVerifiers, contextA))
+                    .doesNotThrowAnyException();
+
+            L402VerificationContext contextB = L402VerificationContext.builder()
+                    .requestMetadata(Map.of(
+                            VerificationContextKeys.REQUEST_METHOD, "POST"
+                    ))
+                    .build();
+
+            assertThatThrownBy(() -> MacaroonVerifier.verifyCaveats(caveats, allVerifiers, contextB))
+                    .isInstanceOf(L402Exception.class);
+        }
+    }
 }

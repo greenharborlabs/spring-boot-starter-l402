@@ -8,6 +8,8 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -309,6 +311,47 @@ class PathCaveatVerifierTest {
     }
 
     // ---------------------------------------------------------------
+    // FR-031: Malformed caveat path normalization
+    // ---------------------------------------------------------------
+
+    @Nested
+    @DisplayName("FR-031: malformed caveat path normalization")
+    class MalformedCaveatPathNormalization {
+
+        @Test
+        @DisplayName("FR-031: pattern without leading slash is normalized")
+        void patternWithoutLeadingSlashIsNormalized() {
+            Caveat caveat = new Caveat("path", "products/**");
+            L402VerificationContext context = contextWithPath("/products/123");
+
+            assertThatCode(() -> verifier.verify(caveat, context))
+                    .doesNotThrowAnyException();
+        }
+
+        @Test
+        @DisplayName("FR-031: pattern without leading slash with specific path")
+        void patternWithoutLeadingSlashSpecificPath() {
+            Caveat caveat = new Caveat("path", "products/123");
+            L402VerificationContext context = contextWithPath("/products/123");
+
+            assertThatCode(() -> verifier.verify(caveat, context))
+                    .doesNotThrowAnyException();
+        }
+
+        @Test
+        @DisplayName("FR-031: pattern without leading slash no match")
+        void patternWithoutLeadingSlashNoMatch() {
+            Caveat caveat = new Caveat("path", "products/123");
+            L402VerificationContext context = contextWithPath("/api/other");
+
+            assertThatThrownBy(() -> verifier.verify(caveat, context))
+                    .isInstanceOf(L402Exception.class)
+                    .extracting(e -> ((L402Exception) e).getErrorCode())
+                    .isEqualTo(ErrorCode.INVALID_SERVICE);
+        }
+    }
+
+    // ---------------------------------------------------------------
     // Edge cases
     // ---------------------------------------------------------------
 
@@ -419,6 +462,46 @@ class PathCaveatVerifierTest {
             Caveat current = new Caveat("path", "/api/**,/admin/**");
 
             assertThat(verifier.isMoreRestrictive(previous, current)).isFalse();
+        }
+
+        @Test
+        @DisplayName("rejects oversized previous caveat in isMoreRestrictive")
+        void rejectsOversizedPreviousCaveat() {
+            String oversized = IntStream.rangeClosed(1, 51)
+                    .mapToObj(i -> "/api/path" + i)
+                    .collect(Collectors.joining(","));
+            Caveat previous = new Caveat("path", oversized);
+            Caveat current = new Caveat("path", "/api/path1");
+
+            assertThat(verifier.isMoreRestrictive(previous, current)).isFalse();
+        }
+
+        @Test
+        @DisplayName("rejects oversized current caveat in isMoreRestrictive")
+        void rejectsOversizedCurrentCaveat() {
+            String oversized = IntStream.rangeClosed(1, 51)
+                    .mapToObj(i -> "/api/path" + i)
+                    .collect(Collectors.joining(","));
+            Caveat previous = new Caveat("path", "/api/path1");
+            Caveat current = new Caveat("path", oversized);
+
+            assertThat(verifier.isMoreRestrictive(previous, current)).isFalse();
+        }
+
+        @Test
+        @DisplayName("accepts within-bounds caveats in isMoreRestrictive")
+        void acceptsWithinBoundsCaveats() {
+            String fivePatterns = IntStream.rangeClosed(1, 5)
+                    .mapToObj(i -> "/api/path" + i)
+                    .collect(Collectors.joining(","));
+            String threePatterns = IntStream.rangeClosed(1, 3)
+                    .mapToObj(i -> "/api/path" + i)
+                    .collect(Collectors.joining(","));
+            Caveat previous = new Caveat("path", fivePatterns);
+            Caveat current = new Caveat("path", threePatterns);
+
+            // current is a subset of previous — should be true
+            assertThat(verifier.isMoreRestrictive(previous, current)).isTrue();
         }
     }
 

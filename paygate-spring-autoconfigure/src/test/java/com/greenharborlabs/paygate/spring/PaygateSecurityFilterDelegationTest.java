@@ -205,6 +205,31 @@ class PaygateSecurityFilterDelegationTest {
     }
 
     // -----------------------------------------------------------------------
+    // T022-5b: FR-003b — %2F preserved in verification context request.path
+    // -----------------------------------------------------------------------
+
+    @Test
+    @DisplayName("FR-003b: encoded slash %2F is preserved in verification context request.path")
+    void filterPreservesEncodedSlashInRequestPath() throws Exception {
+        // The path /api/v1%2Fbypass should be normalized to /api/v1%2Fbypass (slash preserved),
+        // NOT decoded to /api/v1/bypass which would change the segment structure.
+        stubProtectedEndpointWithSuccessfulValidation("GET", "/api/v1%2Fbypass");
+
+        request.setMethod("GET");
+        request.setRequestURI("/api/v1%2Fbypass");
+        request.addHeader("Authorization", VALID_L402_HEADER);
+
+        filter.doFilter(request, response, chain);
+
+        verify(validator).validate(any(L402HeaderComponents.class), contextCaptor.capture());
+        L402VerificationContext ctx = contextCaptor.getValue();
+
+        assertThat(ctx.getRequestMetadata())
+                .as("FR-003b: Encoded slash %2F must be preserved in request.path metadata")
+                .containsEntry(VerificationContextKeys.REQUEST_PATH, "/api/v1%2Fbypass");
+    }
+
+    // -----------------------------------------------------------------------
     // T022-5: macaroonWithoutNewCaveatsStillAuthorized (FR-024 regression)
     // -----------------------------------------------------------------------
 

@@ -251,4 +251,85 @@ class PathGlobMatcherTest {
                     .isInstanceOf(IllegalArgumentException.class);
         }
     }
+
+    @Nested
+    @DisplayName("matchNormalized")
+    class MatchNormalized {
+
+        @Test
+        @DisplayName("matches with pre-normalized inputs")
+        void matchesWithPreNormalizedInputs() {
+            assertThat(PathGlobMatcher.matchNormalized("/api/products/**", "/api/products/123"))
+                    .isTrue();
+        }
+
+        @Test
+        @DisplayName("rejects non-matching pre-normalized inputs")
+        void rejectsNonMatchingPreNormalizedInputs() {
+            assertThat(PathGlobMatcher.matchNormalized("/api/products/**", "/orders/1"))
+                    .isFalse();
+        }
+
+        @Test
+        @DisplayName("root pattern matches root path")
+        void rootPatternMatchesRoot() {
+            assertThat(PathGlobMatcher.matchNormalized("/", "/"))
+                    .isTrue();
+        }
+
+        @Test
+        @DisplayName("root pattern does not match sub-path")
+        void rootPatternDoesNotMatchSubPath() {
+            assertThat(PathGlobMatcher.matchNormalized("/", "/products"))
+                    .isFalse();
+        }
+
+        @Test
+        @DisplayName("single wildcard matches one segment")
+        void singleWildcardMatchesOneSegment() {
+            assertThat(PathGlobMatcher.matchNormalized("/products/*", "/products/123"))
+                    .isTrue();
+        }
+
+        @Test
+        @DisplayName("matches delegates to matchNormalized correctly with non-normalized inputs")
+        void matchesDelegatesToMatchNormalized() {
+            assertThat(PathGlobMatcher.matches("/api//products/**", "/api/products/123"))
+                    .isTrue();
+        }
+    }
+
+    @Nested
+    @DisplayName("isContainedInNormalized")
+    class IsContainedInNormalized {
+
+        @Test
+        @DisplayName("broader existing contains narrower proposed")
+        void broaderExistingContainsNarrowerProposed() {
+            assertThat(PathGlobMatcher.isContainedInNormalized("/api/**", "/api/products/**"))
+                    .isTrue();
+        }
+
+        @Test
+        @DisplayName("narrower existing does not contain broader proposed")
+        void narrowerExistingDoesNotContainBroaderProposed() {
+            assertThat(PathGlobMatcher.isContainedInNormalized("/api/products/**", "/api/**"))
+                    .isFalse();
+        }
+
+        @Test
+        @DisplayName("identical patterns are contained")
+        void identicalPatternsContained() {
+            assertThat(PathGlobMatcher.isContainedInNormalized("/api/products", "/api/products"))
+                    .isTrue();
+        }
+
+        @Test
+        @DisplayName("isContainedIn delegates to isContainedInNormalized correctly with non-normalized inputs")
+        void isContainedInDelegatesToNormalized() {
+            // "/api//" normalizes to "/api", "/api/" normalizes to "/api" — identical, so contained
+            assertThat(PathGlobMatcher.isContainedIn("/api//", "/api/"))
+                    .isTrue();
+        }
+    }
 }
