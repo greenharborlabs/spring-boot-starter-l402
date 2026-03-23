@@ -247,14 +247,14 @@ public class PaygateSecurityFilter implements Filter {
         try {
             ChallengeContext challengeContext = challengeService.createChallenge(httpRequest, config);
             List<ChallengeResponse> challenges = buildChallenges(challengeContext);
-            PaygateResponseWriter.writePaymentRequired(httpResponse, challengeContext, challenges);
+                    method, sanitizeForLog(path), e.getClass().getSimpleName());
             recordChallenge(config.pathPattern(), "all");
                     method, safePath, e.getClass().getSimpleName());
             PaygateResponseWriter.writeRateLimited(httpResponse);
         } catch (PaygateLightningUnavailableException e) {
             // Log exception type only — the message may contain internal backend hostnames/addresses.
             log.log(System.Logger.Level.WARNING, "Lightning unavailable for {0} {1}: {2}",
-                    method, path, e.getClass().getSimpleName());
+                    method, sanitizeForLog(path), e.getClass().getSimpleName());
             if (!httpResponse.isCommitted()) {
                     method, safePath, e.getClass().getSimpleName());
             }
