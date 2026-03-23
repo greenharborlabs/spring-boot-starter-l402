@@ -223,8 +223,10 @@ public class PaygateSecurityFilter implements Filter {
                             recordCaveatRejected(sanitizeForLog(e.getMessage() != null ? e.getMessage() : ""));
                         }
                         // Fail closed: any unexpected exception from validation produces 503, never 500
+                        String safePath = sanitizeForLog(path);
+                        String safeMessage = sanitizeForLog(e.getMessage());
                         log.log(System.Logger.Level.WARNING, "Unexpected error during {0} validation for {1} {2}: {3}",
-                                protocol.scheme(), method, path, e.getMessage());
+                                protocol.scheme(), method, safePath, safeMessage);
                         if (!httpResponse.isCommitted()) {
                             PaygateResponseWriter.writeLightningUnavailable(httpResponse);
                         }
