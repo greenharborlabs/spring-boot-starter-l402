@@ -76,10 +76,14 @@ public final class PaygateAuthenticationEntryPoint implements AuthenticationEntr
         } catch (PaygateRateLimitedException _) {
             PaygateResponseWriter.writeRateLimited(response);
         } catch (PaygateLightningUnavailableException e) {
-            log.log(System.Logger.Level.WARNING, "Lightning unavailable during entry point challenge: {0}", e.getMessage());
+            // Log exception type only — the message may contain internal backend hostnames/addresses.
+            log.log(System.Logger.Level.WARNING, "Lightning unavailable during entry point challenge: {0}",
+                    e.getClass().getSimpleName());
             PaygateResponseWriter.writeLightningUnavailable(response);
         } catch (Exception e) {
-            log.log(System.Logger.Level.WARNING, "Unexpected error in payment entry point: {0}", e.getMessage());
+            // Log exception type only — the message may contain internal backend details.
+            log.log(System.Logger.Level.WARNING, "Unexpected error in payment entry point: {0}",
+                    e.getClass().getSimpleName());
             PaygateResponseWriter.writeLightningUnavailable(response);
         }
     }

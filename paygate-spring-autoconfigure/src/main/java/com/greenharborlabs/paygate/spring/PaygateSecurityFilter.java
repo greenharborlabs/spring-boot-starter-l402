@@ -170,13 +170,17 @@ public class PaygateSecurityFilter implements Filter {
 
                     } catch (PaymentValidationException e) {
                         recordCaveatVerifyDuration(verifyStart);
-                        recordCaveatRejected(e.getMessage());
+                        // classifyCaveatType only does keyword matching and returns a constant string —
+                        // sanitize the message anyway to satisfy static analysis taint tracking.
+                        recordCaveatRejected(sanitizeForLog(e.getMessage() != null ? e.getMessage() : ""));
                         // Consume rate limiter token on auth failure to penalize brute-force probing
                         PaygateRateLimiter limiter = this.rateLimiter;
                         if (limiter != null) {
                             limiter.tryAcquire(this.challengeService.resolveClientIp(httpRequest));
                         }
-                        String tokenDetail = e.getTokenId() != null ? e.getTokenId() : "";
+                        // Sanitize the token ID before logging — it is derived from user-supplied input
+                        // and could contain newlines or other control characters used in log injection attacks.
+                        String tokenDetail = sanitizeForLog(e.getTokenId() != null ? e.getTokenId() : "");
                         log.log(System.Logger.Level.WARNING, "{0} validation failed, errorCode={1}",
                                 protocol.scheme(), e.getErrorCode());
 
@@ -189,17 +193,19 @@ public class PaygateSecurityFilter implements Filter {
                         if (e.getErrorCode() == PaymentValidationException.ErrorCode.MALFORMED_CREDENTIAL
                                 && "L402".equals(protocol.scheme())) {
                             // L402-specific: clearly malformed header — return 400 Bad Request
-                            log.log(System.Logger.Level.WARNING, "Malformed L402 header for token {0}: {1}",
-                                    tokenDetail, e.getMessage());
+                            // tokenDetail is already sanitized above; log only the error code, not the message.
+                            log.log(System.Logger.Level.WARNING, "Malformed L402 header for token {0}",
+                                    tokenDetail);
                             PaygateResponseWriter.writeMalformedHeader(httpResponse, e.getMessage(), e.getTokenId());
                             recordRejected(config.pathPattern(), protocol.scheme());
                             return;
                         }
 
                         // For non-L402 protocols or non-malformed errors: use RFC 9457 error response
-                        // Issue fresh challenges so the client can retry with a new payment
-                        log.log(System.Logger.Level.WARNING, "{0} validation failed for token {1}: {2}",
-                                protocol.scheme(), tokenDetail, e.getMessage());
+                        // Issue fresh challenges so the client can retry with a new payment.
+                        // tokenDetail is sanitized; log only the error code enum, never the exception message.
+                        log.log(System.Logger.Level.WARNING, "{0} validation failed for token {1}, errorCode={2}",
+                                protocol.scheme(), tokenDetail, e.getErrorCode());
                         try {
                             ChallengeContext challengeContext = challengeService.createChallenge(httpRequest, config);
                             List<ChallengeResponse> challenges = buildChallenges(challengeContext);
@@ -214,7 +220,7 @@ public class PaygateSecurityFilter implements Filter {
                     } catch (Exception e) {
                         recordCaveatVerifyDuration(verifyStart);
                         if (e instanceof MacaroonVerificationException) {
-                            recordCaveatRejected(e.getMessage());
+                            recordCaveatRejected(sanitizeForLog(e.getMessage() != null ? e.getMessage() : ""));
                         }
                         // Fail closed: any unexpected exception from validation produces 503, never 500
                         log.log(System.Logger.Level.WARNING, "Unexpected error during {0} validation for {1} {2}: {3}",
@@ -239,12 +245,16 @@ public class PaygateSecurityFilter implements Filter {
         } catch (PaygateRateLimitedException _) {
             PaygateResponseWriter.writeRateLimited(httpResponse);
         } catch (PaygateLightningUnavailableException e) {
-            log.log(System.Logger.Level.WARNING, "Lightning unavailable for {0} {1}: {2}", method, path, e.getMessage());
+            // Log exception type only — the message may contain internal backend hostnames/addresses.
+            log.log(System.Logger.Level.WARNING, "Lightning unavailable for {0} {1}: {2}",
+                    method, path, e.getClass().getSimpleName());
             if (!httpResponse.isCommitted()) {
                 PaygateResponseWriter.writeLightningUnavailable(httpResponse);
             }
         } catch (Exception e) {
-            log.log(System.Logger.Level.WARNING, "Failed to create invoice for {0} {1}: {2}", method, path, e.getMessage());
+            // Log exception type only — the message may contain internal backend details.
+            log.log(System.Logger.Level.WARNING, "Failed to create invoice for {0} {1}: {2}",
+                    method, path, e.getClass().getSimpleName());
             if (!httpResponse.isCommitted()) {
                 PaygateResponseWriter.writeLightningUnavailable(httpResponse);
             }
